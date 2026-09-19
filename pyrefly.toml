@@ -1,0 +1,85 @@
+project-includes = ["python"]
+project-excludes = [
+    "**/.pixi",
+    "**/__pycache__",
+    "**/.pytest_cache",
+    "**/.mypy_cache",
+    "**/.ruff_cache",
+    "**/*.egg-info",
+    "**/build",
+    "**/dist",
+    "**/.git",
+    "**/.venv",
+    "**/tests/",
+    "**/.github/",
+    "**/__pycache__/",
+]
+disable-project-excludes-heuristics = true
+search-path = ["python"]
+disable-search-path-heuristics = false
+site-package-path = []
+
+python-platform = "linux"
+python-version = "3.10.0"
+
+# NumPy is deliberately absent: the package's own arrays are annotated with
+# real dtypes, and blanking the import would make `NDArray[np.uint8]` mean
+# nothing.
+replace-imports-with-any = [
+    # "requests",
+    # "requests.*",
+    # "matplotlib",
+    # "matplotlib.*",
+    # "numpy",
+    # "numpy.*",
+    # "scipy",
+    # "scipy.*",
+]
+ignore-missing-imports = []
+ignore-errors-in-generated-code = false
+enabled-ignores = ["type", "pyrefly"]
+disable-type-errors-in-ide = false
+
+infer-with-first-use = false
+check-unannotated-defs = true
+infer-return-types = "checked"
+strict-callable-subtyping = true
+spec-compliant-overloads = false
+use-ignore-files = true
+recursion-depth-limit = 0
+recursion-overflow-handler = "break-with-placeholder"
+
+[errors]
+bad-argument-count = "error"
+bad-argument-type = "error"
+bad-index = "error"
+bad-assignment = "error"
+bad-return = "error"
+bad-override = "error"
+deprecated = "warn"
+implicit-any = "error"
+implicit-any-attribute = "error"
+implicit-any-empty-container = "error"
+implicit-any-parameter = "error"
+implicit-any-type-argument = "error"
+implicit-import = "error"
+invalid-annotation = "error"
+missing-argument = "error"
+missing-attribute = "error"
+missing-import = "error"
+missing-module-attribute = "error"
+missing-source = "ignore"
+missing-source-for-stubs = "ignore"
+no-matching-overload = "error"
+redundant-cast = "warn"
+redundant-condition = "warn"
+redefinition = "error"
+unexpected-keyword = "error"
+unannotated-return = "error"
+unbound-name = "error"
+unnecessary-comparison = "warn"
+unreachable = "warn"
+unknown-name = "error"
+untyped-import = "ignore"
+unused-coroutine = "error"
+unused-ignore = "error"

@@ -1,0 +1,54 @@
+# syntax=docker/dockerfile:1
+#
+# The desktop interface, built and then rendered on a machine with no display.
+#
+# Separate from docker/Dockerfile because this is the one build that needs a windowing toolkit.
+# The manylinux images are built around packaging wheels and carry none of the X11 or Wayland
+# development headers winit links against, so this uses a plain Debian base instead.
+
+# Docker Hub tags the `rust` images by version, not by channel: there is no `rust:stable-bookworm`.
+# `1` tracks the newest 1.x, which is what "stable" means here.
+ARG RUST_VERSION=1
+ARG DEBIAN_SUITE=bookworm
+
+FROM rust:${RUST_VERSION}-${DEBIAN_SUITE} AS toolchain
+ENV CARGO_TERM_COLOR=always RUST_BACKTRACE=1 CARGO_INCREMENTAL=0 DEBIAN_FRONTEND=noninteractive
+
+# winit needs the X11 and Wayland development headers to build, even for a
+# binary that will run under neither. `--no-install-recommends` keeps the layer
+# to the headers themselves rather than a desktop's worth of suggestions.
+#
+# The default apt configuration deletes the archive after each run, which
+# defeats the cache mount; `keep-downloaded-packages` is what makes a rebuild
+# reuse it.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked --mount=type=cache,target=/var/lib/apt/lists,sharing=locked rm -f /etc/apt/apt.conf.d/docker-clean && echo 'Binary::apt::APT::Keep-Downloaded-Packages "true";' > /etc/apt/apt.conf.d/keep-cache && apt-get update && apt-get install -y --no-install-recommends libxkbcommon-dev libwayland-dev libxcb1-dev pkg-config
+
+FROM toolchain AS build
+# Declared so the cache mounts below are keyed per architecture. buildx only passes it to stages that ask.
+ARG TARGETPLATFORM
+WORKDIR /src
+COPY . .
+RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry-gui-${TARGETPLATFORM},sharing=locked --mount=type=cache,target=/usr/local/cargo/git,id=cargo-git-gui-${TARGETPLATFORM},sharing=locked --mount=type=cache,target=/src/target,id=cargo-target-gui-${TARGETPLATFORM},sharing=locked <<'EOF'
+set -eux
+cargo build --release --locked -p twistypuzzle-gui
+
+# The interface renders to a PNG without opening a window, so the layout is
+# checked on a machine that has no display at all. This is the assertion the
+# stage exists for: a build that links but cannot draw still fails here.
+cargo run --release --locked -p twistypuzzle-gui --example screenshot -- /tmp/gui.png
+
+# A renderer that silently produced nothing would leave a zero-length file and
+# the `cargo run` above would still have exited 0.
+test -s /tmp/gui.png
+head -c 8 /tmp/gui.png | od -An -tx1 | tr -d ' \n' | grep -qi '^89504e47' || { echo 'the screenshot is not a PNG' >&2; exit 1; }
+echo "rendered $(wc -c < /tmp/gui.png) bytes of PNG with no display attached"
+
+# Keep it where the `screenshot` stage below can collect it. The cache mount
+# over `target/` disappears with the layer, so this has to be outside it.
+mkdir -p /out && cp /tmp/gui.png /out/gui.png
+EOF
+
+# `--target screenshot` with a local output writes the rendered frame to the
+# host, which is what makes a layout regression reviewable.
+FROM scratch AS screenshot
+COPY --from=build /out/gui.png /gui.png

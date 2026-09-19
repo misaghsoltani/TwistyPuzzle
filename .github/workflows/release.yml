@@ -1,0 +1,232 @@
+name: Release
+
+on:
+  # Production PyPI receives stable releases only:
+  # v1.2.3, v2.0.0, etc.
+  #
+  # Pre-releases such as v1.2.3a1, v1.2.3b1, and v1.2.3rc1
+  # are handled by the Test PyPI workflow instead.
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+  # A manual run from a branch builds and verifies the distributions but does
+  # not publish them. A manual run explicitly targeting a valid release tag
+  # may publish that tag.
+  workflow_dispatch:
+
+permissions: {}
+
+# Do not allow two release runs for the same ref to publish concurrently.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Validate all version relationships before spending time building the
+  # release artifacts.
+  validate:
+    name: Validate release metadata
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Validate release metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          python - <<'PY'
+          import os
+          import re
+          import sys
+          import tomllib
+          from pathlib import Path
+
+          with Path("pyproject.toml").open("rb") as f:
+              base = tomllib.load(f)
+
+          with Path("crates/gui/pyproject.toml").open("rb") as f:
+              gui = tomllib.load(f)
+
+          errors = []
+
+          base_project = base["project"]
+          gui_project = gui["project"]
+
+          base_name = base_project["name"]
+          gui_name = gui_project["name"]
+
+          base_version = base_project["version"]
+          gui_version = gui_project["version"]
+
+          if base_name != "twistypuzzle":
+              errors.append(
+                  f"root project name is {base_name!r}, expected 'twistypuzzle'"
+              )
+
+          if gui_name != "twistypuzzle-gui":
+              errors.append(
+                  f"GUI project name is {gui_name!r}, "
+                  "expected 'twistypuzzle-gui'"
+              )
+
+          if base_version != gui_version:
+              errors.append(
+                  "base and GUI versions differ: "
+                  f"twistypuzzle={base_version!r}, "
+                  f"twistypuzzle-gui={gui_version!r}"
+              )
+
+          # The base package's [gui] extra must request this exact GUI release.
+          expected_gui_dependency = f"twistypuzzle-gui=={base_version}"
+          gui_extra = (
+              base_project
+              .get("optional-dependencies", {})
+              .get("gui", [])
+          )
+
+          if expected_gui_dependency not in gui_extra:
+              errors.append(
+                  "the base package's 'gui' extra must contain "
+                  f"{expected_gui_dependency!r}; found {gui_extra!r}"
+              )
+
+          # The GUI distribution must require this exact base release.
+          expected_base_dependency = f"twistypuzzle=={base_version}"
+          gui_dependencies = gui_project.get("dependencies", [])
+
+          if expected_base_dependency not in gui_dependencies:
+              errors.append(
+                  "the GUI distribution must contain "
+                  f"{expected_base_dependency!r}; "
+                  f"found {gui_dependencies!r}"
+              )
+
+          # When this workflow is targeting a tag, require an exact stable
+          # release tag and require it to match the package metadata.
+          if os.environ.get("GITHUB_REF_TYPE") == "tag":
+              tag = os.environ["GITHUB_REF_NAME"]
+
+              if re.fullmatch(r"v[0-9]+\.[0-9]+\.[0-9]+", tag) is None:
+                  errors.append(
+                      f"invalid production release tag {tag!r}; "
+                      "expected a stable tag such as 'v1.2.3'"
+                  )
+              else:
+                  tag_version = tag[1:]
+
+                  if tag_version != base_version:
+                      errors.append(
+                          "tag and package versions do not match: "
+                          f"tag={tag_version!r}, "
+                          f"pyproject={base_version!r}"
+                      )
+
+          if errors:
+              print("Release metadata validation failed:", file=sys.stderr)
+              for error in errors:
+                  print(f"  - {error}", file=sys.stderr)
+              sys.exit(1)
+
+          print(f"Validated twistypuzzle {base_version}")
+          print(f"Validated twistypuzzle-gui {gui_version}")
+          PY
+
+  # Build every library wheel, the sdist, the desktop distribution, and run
+  # the verification suite before anything is allowed to reach PyPI.
+  build:
+    name: Build
+    needs: [validate]
+    uses: ./.github/workflows/build-wheels.yml
+
+    permissions:
+      contents: read
+
+  # Publish the desktop distribution first. The base package exposes a [gui]
+  # extra that requires this exact twistypuzzle-gui version, so publishing the
+  # GUI first ensures that the extra is resolvable as soon as the base release
+  # appears on PyPI.
+  publish-gui:
+    name: Publish desktop distribution to PyPI
+    needs: [build]
+
+    if: >-
+      github.ref_type == 'tag' &&
+      startsWith(github.ref_name, 'v')
+
+    runs-on: ubuntu-latest
+
+    environment:
+      name: pypi-twistypuzzle-gui
+      url: https://pypi.org/project/twistypuzzle-gui/
+
+    permissions:
+      # Required for PyPI Trusted Publishing (OIDC).
+      id-token: write
+
+    steps:
+      - name: Download desktop distributions
+        uses: actions/download-artifact@v8
+        with:
+          pattern: gui-wheels-*
+          merge-multiple: true
+          path: dist
+
+      - name: Publish desktop distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+
+          # Explicit for clarity. This is already enabled by default when
+          # publishing through a Trusted Publisher.
+          attestations: true
+
+  # Publish the base package only after the matching GUI distribution has
+  # successfully reached PyPI.
+  publish:
+    name: Publish to PyPI
+    needs: [build, publish-gui]
+
+    if: >-
+      github.ref_type == 'tag' &&
+      startsWith(github.ref_name, 'v')
+
+    runs-on: ubuntu-latest
+
+    environment:
+      name: pypi-twistypuzzle
+      url: https://pypi.org/project/twistypuzzle/
+
+    permissions:
+      # Required for PyPI Trusted Publishing (OIDC).
+      id-token: write
+
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v8
+        with:
+          # Includes the library wheels and wheels-sdist, but not
+          # gui-wheels-*.
+          pattern: wheels-*
+          merge-multiple: true
+          path: dist
+
+      - name: Publish distributions to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+
+          # Explicit for clarity. This is already enabled by default when
+          # publishing through a Trusted Publisher.
+          attestations: true

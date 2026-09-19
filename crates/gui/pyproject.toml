@@ -1,0 +1,44 @@
+[build-system]
+requires = ["maturin>=1.9,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "twistypuzzle-gui"
+version = "0.1.0"
+description = "Desktop interface for the twistypuzzle simulator"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "Misagh Soltani", email = "msoltani@email.sc.edu" }]
+keywords = ["twisty-puzzle", "rubik", "gui", "slint", "desktop"]
+classifiers = [
+    "Environment :: X11 Applications",
+    "Environment :: Win32 (MS Windows)",
+    "Environment :: MacOS X",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: Free Threading :: 3 - Stable",
+    "Topic :: Games/Entertainment :: Puzzle Games",
+    "Typing :: Typed",
+]
+dependencies = ["twistypuzzle==0.1.0"]
+
+[project.urls]
+Homepage = "https://github.com/misaghsoltani/TwistyPuzzle"
+Source = "https://github.com/misaghsoltani/TwistyPuzzle"
+Issues = "https://github.com/misaghsoltani/TwistyPuzzle/issues"
+
+[tool.maturin]
+# A binary, not an extension module. The interface owns the event loop, and on
+# macOS that loop has to be the process's main thread, which it cannot be if it
+# is entered from inside an interpreter that already owns it.
+bindings = "bin"
+module-name = "twistypuzzle_gui"
+# The executable *is* the console script: maturin installs it under the
+# interpreter's scripts directory, so declaring a `[project.scripts]` entry
+# alongside it is both redundant and refused.
+python-source = "python"
+strip = true

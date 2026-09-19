@@ -1,0 +1,1041 @@
+// Desktop interface for the twisty puzzle simulator.
+
+import { ComboBox, Slider, Palette } from "std-widgets.slint";
+
+/// Color palette tokens for dark, light, and system themes.
+global Theme {
+    in-out property <int> mode: 2; // 0 = Dark (Moon), 1 = Light (Sun), 2 = Both (System)
+    out property <bool> is-dark: mode == 0 ? true : (mode == 1 ? false : Palette.color-scheme != ColorScheme.light);
+
+    // Base grounds & surfaces
+    out property <color> ground: is-dark ? #121418 : #f0f2f5;
+    out property <color> topbar-bg: is-dark ? #151820 : #ffffff;
+    out property <color> topbar-border: is-dark ? #222630 : #e2e6ed;
+    out property <color> stage-bg: is-dark ? #1b1e24 : #e4e9f0;
+    out property <color> sidebar-bg: is-dark ? #121418 : #f8fafc;
+    out property <color> divider: is-dark ? #222630 : #e2e6ed;
+
+    // Card elevation
+    out property <color> card-bg: is-dark ? #171a21 : #ffffff;
+    out property <color> card-border: is-dark ? #242934 : #e2e6ed;
+
+    // Inset wells
+    out property <color> inset-bg: is-dark ? #0c0e12 : #f1f3f7;
+    out property <color> inset-border: is-dark ? #1e232e : #e2e6ed;
+
+    // Typography hierarchy
+    out property <color> text-primary: is-dark ? #f8fafc : #0f172a;
+    out property <color> text-secondary: is-dark ? #8fa0b5 : #64748b;
+    out property <color> text-muted: is-dark ? #475569 : #94a3b8;
+    out property <color> text-hint: is-dark ? #717f94 : #64748b;
+
+    // Primary action button
+    out property <color> primary-bg: #2563eb;
+    out property <color> primary-hover: is-dark ? #3b82f6 : #1d4ed8;
+    out property <color> primary-pressed: is-dark ? #1d4ed8 : #1e40af;
+    out property <color> primary-disabled: is-dark ? #161920 : #e2e8f0;
+    out property <color> primary-disabled-border: is-dark ? #222733 : #cbd5e1;
+
+    // Secondary action button
+    out property <color> secondary-bg: is-dark ? #14171e : #ffffff;
+    out property <color> secondary-hover: is-dark ? #222833 : #f1f5f9;
+    out property <color> secondary-pressed: is-dark ? #101217 : #e2e8f0;
+    out property <color> secondary-border: is-dark ? #282f3c : #cbd5e1;
+    out property <color> secondary-border-hover: is-dark ? #3e4859 : #94a3b8;
+    out property <color> secondary-text: is-dark ? #e2e8f0 : #334155;
+
+    // Toggle switches
+    out property <color> switch-track: is-dark ? #212530 : #e2e8f0;
+    out property <color> switch-track-hover: is-dark ? #2a303d : #cbd5e1;
+    out property <color> switch-border: is-dark ? #2a313e : #cbd5e1;
+    out property <color> switch-border-hover: is-dark ? #3a4354 : #94a3b8;
+    out property <color> switch-thumb: is-dark ? #8a96a8 : #94a3b8;
+
+    // Status & Badges
+    out property <color> solved-bg: is-dark ? #0d281aee : #ecfdf5ee;
+    out property <color> solved-border: is-dark ? #22c55e88 : #86efac;
+    out property <color> solved-text: is-dark ? #4ade80 : #15803d;
+    out property <color> solved-dot: is-dark ? #22c55e : #16a34a;
+
+    // Keycap badge inside button
+    out property <color> keycap-bg: is-dark ? #11141a : #f1f5f9;
+    out property <color> keycap-border: is-dark ? #2b3342 : #cbd5e1;
+    out property <color> keycap-text: is-dark ? #94a3b8 : #64748b;
+}
+
+/// Action button with an optional keyboard shortcut hint.
+component ActionButton inherits Rectangle {
+    in property <string> text;
+    in property <string> shortcut: "";
+    in property <bool> primary: false;
+    in property <bool> enabled: true;
+    callback clicked();
+
+    height: 32px;
+    border-radius: 6px;
+    border-width: 1px;
+
+    border-color: !root.enabled ? (root.primary ? Theme.primary-disabled-border : Theme.secondary-border) : (
+        root.primary ? (
+            touch.pressed ? #1d4ed8 : (touch.has-hover ? #60a5fa : #3b82f6)
+        ) : (
+            touch.pressed ? Theme.secondary-border : (touch.has-hover ? Theme.secondary-border-hover : Theme.secondary-border)
+        )
+    );
+
+    background: !root.enabled ? (root.primary ? Theme.primary-disabled : Theme.secondary-bg) : (
+        root.primary ? (
+            touch.pressed ? Theme.primary-pressed : (touch.has-hover ? Theme.primary-hover : Theme.primary-bg)
+        ) : (
+            touch.pressed ? Theme.secondary-pressed : (touch.has-hover ? Theme.secondary-hover : Theme.secondary-bg)
+        )
+    );
+
+    animate background { duration: 120ms; easing: ease-out; }
+    animate border-color { duration: 120ms; easing: ease-out; }
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 10px;
+        spacing: 7px;
+        alignment: center;
+
+        Text {
+            text: root.text;
+            color: !root.enabled ? Theme.text-muted : (root.primary ? #ffffff : Theme.secondary-text);
+            font-size: 12.5px;
+            font-weight: 600;
+            vertical-alignment: center;
+        }
+
+        if root.shortcut != "": Rectangle {
+            border-radius: 3px;
+            background: root.primary ? #ffffff24 : Theme.keycap-bg;
+            border-width: 1px;
+            border-color: root.primary ? #ffffff33 : Theme.keycap-border;
+            height: 17px;
+            width: key-txt.preferred-width + 8px;
+            y: (parent.height - self.height) / 2;
+
+            key-txt := Text {
+                text: root.shortcut;
+                color: !root.enabled ? Theme.text-muted : (root.primary ? #ffffffcc : Theme.keycap-text);
+                font-size: 9.5px;
+                font-weight: 600;
+                font-family: "monospace";
+                vertical-alignment: center;
+                horizontal-alignment: center;
+            }
+        }
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.not-allowed;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+/// Two-state toggle switch.
+component ToggleSwitch inherits Rectangle {
+    in-out property <bool> checked;
+    in property <bool> enabled: true;
+    in property <string> text;
+    callback toggled();
+
+    height: 24px;
+    background: transparent;
+
+    HorizontalLayout {
+        spacing: 10px;
+        alignment: space-between;
+
+        Text {
+            text: root.text;
+            color: !root.enabled ? Theme.text-muted : Theme.text-primary;
+            font-size: 12.5px;
+            font-weight: 500;
+            vertical-alignment: center;
+            horizontal-stretch: 1;
+        }
+
+        track := Rectangle {
+            width: 36px;
+            height: 20px;
+            border-radius: 10px;
+            background: !root.enabled ? Theme.switch-track : (
+                root.checked ? (
+                    touch.has-hover ? #3b82f6 : #2563eb
+                ) : (
+                    touch.has-hover ? Theme.switch-track-hover : Theme.switch-track
+                )
+            );
+            border-width: 1px;
+            border-color: root.checked ? (
+                touch.has-hover ? #60a5fa : #3b82f6
+            ) : (
+                touch.has-hover ? Theme.switch-border-hover : Theme.switch-border
+            );
+
+            animate background { duration: 150ms; easing: ease-out; }
+            animate border-color { duration: 150ms; easing: ease-out; }
+
+            thumb := Rectangle {
+                x: root.checked ? 19px : 3px;
+                y: 3px;
+                width: 14px;
+                height: 14px;
+                border-radius: 7px;
+                background: !root.enabled ? Theme.text-muted : (root.checked ? #ffffff : Theme.switch-thumb);
+
+                animate x { duration: 150ms; easing: ease-out; }
+            }
+        }
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: root.enabled ? MouseCursor.pointer : MouseCursor.not-allowed;
+        clicked => {
+            root.checked = !root.checked;
+            root.toggled();
+        }
+    }
+}
+
+/// Metric chip displaying a puzzle property.
+component StatChip inherits Rectangle {
+    in property <string> label;
+    in property <color> dot-color: #3b82f6;
+
+    height: 24px;
+    border-radius: 4px;
+    background: Theme.inset-bg;
+    border-width: 1px;
+    border-color: Theme.card-border;
+    horizontal-stretch: 1;
+
+    HorizontalLayout {
+        padding-left: 8px;
+        padding-right: 8px;
+        spacing: 6px;
+        alignment: center;
+
+        Rectangle {
+            width: 5px;
+            height: 5px;
+            border-radius: 2.5px;
+            background: root.dot-color;
+            y: (parent.height - self.height) / 2;
+        }
+
+        Text {
+            text: root.label;
+            color: Theme.text-secondary;
+            font-size: 11px;
+            font-weight: 500;
+            vertical-alignment: center;
+        }
+    }
+}
+
+/// Container card with a title header.
+component SectionCard inherits Rectangle {
+    in property <string> title;
+
+    background: Theme.card-bg;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: Theme.card-border;
+
+    VerticalLayout {
+        padding: 11px;
+        spacing: 9px;
+
+        if root.title != "": Text {
+            text: root.title;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 0.7px;
+            color: Theme.text-secondary;
+            vertical-alignment: center;
+        }
+
+        @children
+    }
+}
+
+/// Segmented control for dark, system, and light themes.
+component ThemeToggle inherits Rectangle {
+    callback theme-selected(int);
+
+    height: 26px;
+    width: 82px;
+    border-radius: 13px;
+    background: Theme.is-dark ? #12141a : #e2e6ed;
+    border-width: 1px;
+    border-color: Theme.is-dark ? #242936 : #cbd5e1;
+
+    // Sliding indicator pill
+    pill := Rectangle {
+        x: Theme.mode == 0 ? 2px : (Theme.mode == 2 ? 29px : 56px);
+        y: 2px;
+        width: 24px;
+        height: 20px;
+        border-radius: 10px;
+        background: Theme.is-dark ? #222836 : #ffffff;
+        border-width: 1px;
+        border-color: Theme.is-dark ? #333c50 : #cbd5e1;
+
+        animate x { duration: 160ms; easing: ease-out; }
+    }
+
+    HorizontalLayout {
+        padding: 0px;
+        spacing: 0px;
+
+        // Dark / Moon (Mode 0)
+        Rectangle {
+            width: 27px;
+            height: 26px;
+
+            Image {
+                source: @image-url("icon-moon.svg");
+                colorize: Theme.mode == 0 ? (Theme.is-dark ? #f8fafc : #0f172a) : (Theme.is-dark ? #64748b : #94a3b8);
+                width: 12px;
+                height: 12px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+            }
+
+            TouchArea {
+                mouse-cursor: MouseCursor.pointer;
+                clicked => {
+                    root.theme-selected(0);
+                }
+            }
+        }
+
+        // Both / System (Mode 2)
+        Rectangle {
+            width: 27px;
+            height: 26px;
+
+            Image {
+                source: @image-url("icon-both.svg");
+                colorize: Theme.mode == 2 ? (Theme.is-dark ? #f8fafc : #0f172a) : (Theme.is-dark ? #64748b : #94a3b8);
+                width: 12px;
+                height: 12px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+            }
+
+            TouchArea {
+                mouse-cursor: MouseCursor.pointer;
+                clicked => {
+                    root.theme-selected(2);
+                }
+            }
+        }
+
+        // Light / Sun (Mode 1)
+        Rectangle {
+            width: 27px;
+            height: 26px;
+
+            Image {
+                source: @image-url("icon-sun.svg");
+                colorize: Theme.mode == 1 ? (Theme.is-dark ? #f8fafc : #0f172a) : (Theme.is-dark ? #64748b : #94a3b8);
+                width: 12px;
+                height: 12px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+            }
+
+            TouchArea {
+                mouse-cursor: MouseCursor.pointer;
+                clicked => {
+                    root.theme-selected(1);
+                }
+            }
+        }
+    }
+}
+
+/// Window caption button to minimize, maximize, or close.
+component WindowControl inherits Rectangle {
+    in property <image> icon;
+    in property <bool> is-close: false;
+    callback clicked();
+
+    width: 28px;
+    height: 26px;
+    border-radius: 5px;
+
+    background: touch.pressed ? (
+        root.is-close ? (Theme.is-dark ? #b91c1c : #991b1b) : (Theme.is-dark ? #181c24 : #cbd5e1)
+    ) : (
+        touch.has-hover ? (
+            root.is-close ? (Theme.is-dark ? #dc2626 : #e11d48) : (Theme.is-dark ? #222834 : #e2e8f0)
+        ) : transparent
+    );
+
+    border-width: 1px;
+    border-color: touch.has-hover && !root.is-close ? (Theme.is-dark ? #2d3545 : #cbd5e1) : transparent;
+
+    animate background { duration: 100ms; easing: ease-out; }
+    animate border-color { duration: 100ms; easing: ease-out; }
+
+    Image {
+        source: root.icon;
+        width: 12px;
+        height: 12px;
+        colorize: touch.has-hover ? (
+            root.is-close ? #ffffff : Theme.text-primary
+        ) : Theme.text-secondary;
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+    }
+
+    touch := TouchArea {
+        mouse-cursor: MouseCursor.pointer;
+        clicked => {
+            root.clicked();
+        }
+    }
+}
+
+export component MainWindow inherits Window {
+    title: "Twisty Puzzle";
+    icon: @image-url("app-icon.svg");
+    preferred-width: 1040px;
+    preferred-height: 700px;
+    min-width: 760px;
+    min-height: 520px;
+    no-frame: true;
+    resize-border-width: 6px;
+
+    init => {
+        Palette.color-scheme = ColorScheme.unknown;
+        Theme.mode = 2;
+    }
+
+    // --- what the Rust side puts here ---------------------------------------
+    in property <image> frame;
+    in property <[string]> puzzle-names;
+    in property <string> status;
+    in property <string> hint;
+    in property <string> move-log;
+    in property <bool> solved;
+    in property <bool> busy;
+    in property <bool> can-undo;
+    in property <int> piece-count;
+    in property <int> grip-count;
+    in property <bool> arrow-hovered: false;
+    in-out property <bool> is-maximized: false;
+
+    // --- what the interface owns --------------------------------------------
+    in-out property <int> puzzle-index: 0;
+    in-out property <bool> show-arrows: true;
+    in-out property <bool> show-edges: true;
+    in-out property <float> scramble-depth: 20;
+    in-out property <bool> animate-scramble: true;
+    in-out property <int> theme-mode <=> Theme.mode;
+    out property <bool> is-dark <=> Theme.is-dark;
+
+    // --- what the Rust side listens for --------------------------------------
+    callback viewport-resized(length, length);
+    callback pointer-pressed(float, float);
+    callback pointer-moved(float, float);
+    callback pointer-released(float, float);
+    callback pointer-exited();
+    callback zoomed(float);
+    callback chose(int);
+    callback scramble();
+    callback reset();
+    callback undo();
+    callback options-changed();
+    callback animate-scramble-changed();
+    callback theme-changed();
+    callback minimize-window();
+    callback toggle-maximize();
+    callback close-window();
+    callback drag-window();
+
+    // Theme switching handler
+    public function apply-theme(mode: int) {
+        Theme.mode = mode;
+        if (mode == 0) {
+            Palette.color-scheme = ColorScheme.dark;
+        } else if (mode == 1) {
+            Palette.color-scheme = ColorScheme.light;
+        } else {
+            Palette.color-scheme = ColorScheme.unknown;
+        }
+        root.theme-changed();
+    }
+
+    // Dynamic ground background adapting to theme
+    background: Theme.ground;
+
+    forward-focus: keys;
+
+    keys := FocusScope {
+        key-pressed(event) => {
+            if (root.busy) {
+                return accept;
+            }
+            if (event.text == " ") {
+                root.scramble();
+                return accept;
+            }
+            if (event.text == "r" || event.text == "R") {
+                root.reset();
+                return accept;
+            }
+            if (event.text == "u" || event.text == "U" || event.text == "z" || event.text == "Z") {
+                root.undo();
+                return accept;
+            }
+            return reject;
+        }
+
+        VerticalLayout {
+            padding: 0px;
+            spacing: 0px;
+
+            // --- Window Top Bar ---------------------------------------------
+            top-bar := Rectangle {
+                height: 38px;
+                background: Theme.topbar-bg;
+
+                // Native window drag area across entire top bar background
+                drag-area := TouchArea {
+                    width: 100%;
+                    height: 100%;
+                    pointer-event(event) => {
+                        if (event.kind == PointerEventKind.down) {
+                            root.drag-window();
+                        }
+                    }
+                    double-clicked => {
+                        root.toggle-maximize();
+                    }
+                }
+
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 14px;
+                    alignment: space-between;
+
+                    // Left: Window Controls (Close, Minimize, Maximize) + Divider + Logo & Title & Active Model
+                    HorizontalLayout {
+                        spacing: 10px;
+                        alignment: start;
+
+                        // Caption controls
+                        HorizontalLayout {
+                            spacing: 3px;
+                            alignment: center;
+                            y: (parent.height - self.height) / 2;
+
+                            WindowControl {
+                                icon: @image-url("icon-close.svg");
+                                is-close: true;
+                                clicked => {
+                                    root.close-window();
+                                }
+                            }
+
+                            WindowControl {
+                                icon: @image-url("icon-min.svg");
+                                clicked => {
+                                    root.minimize-window();
+                                }
+                            }
+
+                            WindowControl {
+                                icon: root.is-maximized ? @image-url("icon-restore.svg") : @image-url("icon-max.svg");
+                                clicked => {
+                                    root.toggle-maximize();
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            width: 1px;
+                            height: 14px;
+                            background: Theme.divider;
+                            y: (parent.height - self.height) / 2;
+                        }
+
+                        // Logo
+                        Image {
+                            source: @image-url("logo.svg");
+                            width: 22px;
+                            height: 22px;
+                            y: (parent.height - self.height) / 2;
+                        }
+
+                        Text {
+                            text: "Twisty Puzzle";
+                            color: Theme.text-primary;
+                            font-size: 13.5px;
+                            font-weight: 600;
+                            letter-spacing: -0.1px;
+                            vertical-alignment: center;
+                        }
+
+                        Rectangle {
+                            width: 1px;
+                            height: 14px;
+                            background: Theme.divider;
+                            y: (parent.height - self.height) / 2;
+                        }
+
+                        Text {
+                            text: root.puzzle-names.length > root.puzzle-index ? root.puzzle-names[root.puzzle-index] : "";
+                            color: Theme.text-secondary;
+                            font-size: 12px;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    // Right: Live Status & Theme Switcher
+                    HorizontalLayout {
+                        spacing: 14px;
+                        alignment: end;
+
+                        // Live Status Indicator & Moves Count
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: center;
+
+                            Rectangle {
+                                width: 6px;
+                                height: 6px;
+                                border-radius: 3px;
+                                background: root.busy ? #f59e0b : #10b981;
+                                y: (parent.height - self.height) / 2;
+                            }
+
+                            Text {
+                                text: root.status;
+                                color: Theme.text-secondary;
+                                font-size: 11.5px;
+                                font-family: "monospace";
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        Rectangle {
+                            width: 1px;
+                            height: 14px;
+                            background: Theme.divider;
+                            y: (parent.height - self.height) / 2;
+                        }
+
+                        // Theme Mode Segmented Switch
+                        ThemeToggle {
+                            y: (parent.height - self.height) / 2;
+                            theme-selected(m) => {
+                                root.apply-theme(m);
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Hairline separator between top bar and main workspace
+            Rectangle {
+                height: 1px;
+                background: Theme.topbar-border;
+            }
+
+            // --- Main Workspace: Viewport & Controls -------------------------
+            HorizontalLayout {
+                horizontal-stretch: 1;
+                vertical-stretch: 1;
+                padding: 0px;
+                spacing: 0px;
+
+                // --- 3D Viewport Stage ---------------------------------------
+                stage := Rectangle {
+                    horizontal-stretch: 1;
+                    background: Theme.stage-bg;
+
+                    changed width => {
+                        root.viewport-resized(self.width, self.height);
+                    }
+                    changed height => {
+                        root.viewport-resized(self.width, self.height);
+                    }
+
+                    Image {
+                        width: 100%;
+                        height: 100%;
+                        source: root.frame;
+                        image-fit: fill;
+                    }
+
+                    touch := TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        mouse-cursor: self.pressed ? (root.arrow-hovered ? MouseCursor.pointer : MouseCursor.grabbing) : (root.arrow-hovered ? MouseCursor.pointer : MouseCursor.grab);
+
+                        // Normalized device coordinates: x and y in [-1, 1] with y
+                        // up, which is what the ray caster expects.
+                        function ndc-x() -> float {
+                            return (self.mouse-x / stage.width) * 2 - 1;
+                        }
+                        function ndc-y() -> float {
+                            return 1 - (self.mouse-y / stage.height) * 2;
+                        }
+
+                        pointer-event(event) => {
+                            if (root.busy) {
+                                return;
+                            }
+                            if (event.kind == PointerEventKind.down) {
+                                root.pointer-pressed(self.ndc-x(), self.ndc-y());
+                            } else if (event.kind == PointerEventKind.up) {
+                                root.pointer-released(self.ndc-x(), self.ndc-y());
+                            } else if (event.kind == PointerEventKind.move) {
+                                root.pointer-moved(self.ndc-x(), self.ndc-y());
+                            }
+                        }
+                        changed has-hover => {
+                            if (!self.has-hover && !root.busy) {
+                                root.pointer-exited();
+                            }
+                        }
+                        scroll-event(event) => {
+                            if (!root.busy) {
+                                root.zoomed(event.delta-y / 1px);
+                            }
+                            return accept;
+                        }
+                    }
+
+                    // Solved badge
+                    if root.solved && !root.busy: Rectangle {
+                        x: 16px;
+                        y: 16px;
+                        width: solved-layout.preferred-width + 24px;
+                        height: 30px;
+                        border-radius: 15px;
+                        background: Theme.solved-bg;
+                        border-width: 1px;
+                        border-color: Theme.solved-border;
+
+                        solved-layout := HorizontalLayout {
+                            padding-left: 12px;
+                            padding-right: 12px;
+                            spacing: 7px;
+                            alignment: center;
+
+                            Rectangle {
+                                width: 7px;
+                                height: 7px;
+                                border-radius: 3.5px;
+                                background: Theme.solved-dot;
+                                y: (parent.height - self.height) / 2;
+                            }
+
+                            Text {
+                                text: "SOLVED";
+                                color: Theme.solved-text;
+                                font-size: 11.5px;
+                                font-weight: 700;
+                                letter-spacing: 0.8px;
+                                vertical-alignment: center;
+                            }
+                        }
+                    }
+
+                    // Asynchronous build progress overlay.
+                    if root.busy: Rectangle {
+                        background: Theme.is-dark ? #14171fe0 : #0f172a60;
+
+                        Rectangle {
+                            width: 210px;
+                            height: 84px;
+                            border-radius: 10px;
+                            background: Theme.card-bg;
+                            border-width: 1px;
+                            border-color: Theme.card-border;
+
+                            VerticalLayout {
+                                padding: 16px;
+                                spacing: 6px;
+                                alignment: center;
+
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    alignment: center;
+
+                                    Rectangle {
+                                        width: 8px;
+                                        height: 8px;
+                                        border-radius: 4px;
+                                        background: #3b82f6;
+                                        y: (parent.height - self.height) / 2;
+                                    }
+
+                                    Text {
+                                        text: "Building Model…";
+                                        color: Theme.text-primary;
+                                        font-size: 13.5px;
+                                        font-weight: 600;
+                                        horizontal-alignment: center;
+                                    }
+                                }
+
+                                Text {
+                                    text: "Computing exact geometry";
+                                    color: Theme.text-secondary;
+                                    font-size: 11px;
+                                    horizontal-alignment: center;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Hairline separator between 3D viewport and control panel
+                Rectangle {
+                    width: 1px;
+                    background: Theme.divider;
+                }
+
+                // --- Sidebar Control Panel (291px + 1px divider = 292px) ------
+                Rectangle {
+                    width: 291px;
+                    background: Theme.sidebar-bg;
+
+                    VerticalLayout {
+                        padding: 14px;
+                        spacing: 11px;
+                        alignment: start;
+
+                        // Section: Puzzle Model Selection
+                        SectionCard {
+                            title: "PUZZLE MODEL";
+
+                            VerticalLayout {
+                                spacing: 8px;
+
+                                ComboBox {
+                                    model: root.puzzle-names;
+                                    current-index <=> root.puzzle-index;
+                                    enabled: !root.busy;
+                                    selected(_) => {
+                                        root.chose(self.current-index);
+                                    }
+                                }
+
+                                HorizontalLayout {
+                                    spacing: 8px;
+
+                                    StatChip {
+                                        dot-color: #3b82f6;
+                                        label: root.piece-count + " pieces";
+                                    }
+
+                                    StatChip {
+                                        dot-color: #8b5cf6;
+                                        label: root.grip-count + " layers";
+                                    }
+                                }
+                            }
+                        }
+
+                        // Section: Scramble & History Controls
+                        SectionCard {
+                            title: "SCRAMBLE & CONTROLS";
+
+                            VerticalLayout {
+                                spacing: 10px;
+
+                                HorizontalLayout {
+                                    spacing: 8px;
+
+                                    Text {
+                                        text: "Turns";
+                                        color: Theme.text-secondary;
+                                        font-size: 12px;
+                                        font-weight: 500;
+                                        vertical-alignment: center;
+                                    }
+
+                                    Slider {
+                                        horizontal-stretch: 1;
+                                        minimum: 1;
+                                        maximum: 60;
+                                        value <=> root.scramble-depth;
+                                        enabled: !root.busy;
+                                    }
+
+                                    Rectangle {
+                                        width: 32px;
+                                        height: 22px;
+                                        border-radius: 4px;
+                                        background: Theme.inset-bg;
+                                        border-width: 1px;
+                                        border-color: Theme.card-border;
+                                        y: (parent.height - self.height) / 2;
+
+                                        Text {
+                                            text: round(root.scramble-depth);
+                                            color: Theme.text-primary;
+                                            font-size: 11px;
+                                            font-weight: 600;
+                                            font-family: "monospace";
+                                            horizontal-alignment: center;
+                                            vertical-alignment: center;
+                                        }
+                                    }
+                                }
+
+                                ToggleSwitch {
+                                    text: "Animate scramble";
+                                    checked <=> root.animate-scramble;
+                                    enabled: !root.busy;
+                                    toggled => {
+                                        root.animate-scramble-changed();
+                                    }
+                                }
+
+                                ActionButton {
+                                    text: "Scramble";
+                                    shortcut: "Space";
+                                    primary: true;
+                                    enabled: !root.busy;
+                                    clicked => {
+                                        root.scramble();
+                                    }
+                                }
+
+                                HorizontalLayout {
+                                    spacing: 8px;
+
+                                    ActionButton {
+                                        horizontal-stretch: 1;
+                                        text: "Undo";
+                                        shortcut: "U";
+                                        enabled: root.can-undo && !root.busy;
+                                        clicked => {
+                                            root.undo();
+                                        }
+                                    }
+
+                                    ActionButton {
+                                        horizontal-stretch: 1;
+                                        text: "Reset";
+                                        shortcut: "R";
+                                        enabled: !root.busy;
+                                        clicked => {
+                                            root.reset();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Section: Viewport Display Toggles
+                        SectionCard {
+                            title: "DISPLAY OPTIONS";
+
+                            VerticalLayout {
+                                spacing: 10px;
+
+                                ToggleSwitch {
+                                    text: "Turn arrows";
+                                    checked <=> root.show-arrows;
+                                    enabled: !root.busy;
+                                    toggled => {
+                                        root.options-changed();
+                                    }
+                                }
+
+                                ToggleSwitch {
+                                    text: "Piece outlines";
+                                    checked <=> root.show-edges;
+                                    enabled: !root.busy;
+                                    toggled => {
+                                        root.options-changed();
+                                    }
+                                }
+                            }
+                        }
+
+                        // Section: Move History Log
+                        SectionCard {
+                            title: "MOVE HISTORY";
+
+                            Rectangle {
+                                background: Theme.inset-bg;
+                                border-radius: 6px;
+                                border-width: 1px;
+                                border-color: Theme.inset-border;
+                                clip: true;
+                                height: 76px;
+
+                                VerticalLayout {
+                                    padding: 8px;
+                                    alignment: start;
+
+                                    if root.move-log == "": Text {
+                                        text: "No moves recorded";
+                                        color: Theme.text-muted;
+                                        font-size: 11px;
+                                        font-italic: true;
+                                    }
+
+                                    if root.move-log != "": Text {
+                                        text: root.move-log;
+                                        color: Theme.text-primary;
+                                        font-size: 11px;
+                                        font-family: "monospace";
+                                        wrap: word-wrap;
+                                        vertical-alignment: top;
+                                    }
+                                }
+                            }
+                        }
+
+                        // Footer: Interaction Hints
+                        Rectangle {
+                            background: Theme.card-bg;
+                            border-radius: 6px;
+                            border-width: 1px;
+                            border-color: Theme.card-border;
+
+                            VerticalLayout {
+                                padding: 10px;
+                                spacing: 6px;
+
+                                Text {
+                                    text: "SHORTCUTS";
+                                    color: Theme.text-secondary;
+                                    font-size: 10px;
+                                    font-weight: 700;
+                                    letter-spacing: 0.6px;
+                                }
+
+                                Text {
+                                    text: root.hint;
+                                    color: Theme.text-hint;
+                                    font-size: 10.5px;
+                                    wrap: word-wrap;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

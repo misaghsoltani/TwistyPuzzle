@@ -1,0 +1,121 @@
+# The desktop interface is a second crate, and a second distribution, so that
+# the library does not carry a windowing toolkit for the many users who only
+# want the simulator.
+[workspace]
+members = ["crates/gui"]
+resolver = "2"
+
+[package]
+name = "twistypuzzle"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+authors = ["Misagh Soltani <msoltani@email.sc.edu>"]
+description = "Exact-arithmetic twisty puzzle simulator with an integrated software renderer"
+license = "MIT"
+repository = "https://github.com/misaghsoltani/TwistyPuzzle"
+
+[lib]
+name = "twistypuzzle"
+crate-type = ["cdylib", "rlib"]
+# The doc comments on the `#[pyclass]` types are Python docstrings, which pyo3
+# copies into `__doc__`, so their `>>>` examples are Python and rustdoc must not
+# try to build them as Rust. The crate has no Rust doctests to lose.
+doctest = false
+
+[dependencies]
+num-bigint = { version = "0.4", features = ["rand"] }
+num-integer = "0.1"
+num-traits = "0.2"
+indexmap = "2"
+rayon = "1.10"
+bytemuck = { version = "1", features = ["derive"] }
+flate2 = { version = "1", default-features = false, features = [
+    "rust_backend",
+] }
+# `extension-module` is deliberately absent here: it tells the linker that
+# Python's symbols come from the host interpreter, which is right for a wheel
+# but breaks `cargo build`/`cargo test`. maturin turns it on (see pyproject.toml).
+pyo3 = { version = "0.29", features = [
+    "abi3-py310",
+    "num-bigint",
+], optional = true }
+
+[build-dependencies]
+pyo3-build-config = { version = "0.29", optional = true }
+
+[features]
+default = ["python"]
+python = ["dep:pyo3", "dep:pyo3-build-config"]
+# Force every integer through num-bigint, bypassing the small-int fast path, so
+# the tests can prove the two representations are observationally equal.
+bigint-only = []
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+# Deliberately *not* `panic = "abort"`. This crate ships as a Python extension
+# module, and PyO3 can only turn a Rust panic into a `PanicException` if the
+# unwinder is present. Aborting would take the interpreter down with it.
+
+[profile.bench]
+inherits = "release"
+
+[dev-dependencies]
+flate2 = "1"
+
+[lints.rust]
+unsafe_code = "warn"
+elided_lifetimes_in_paths = "warn"
+explicit_outlives_requirements = "warn"
+unused_qualifications = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+correctness = { level = "deny", priority = -1 }
+suspicious = { level = "warn", priority = -1 }
+complexity = { level = "warn", priority = -1 }
+perf = { level = "warn", priority = -1 }
+style = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+# Domain-appropriate relaxations for mathematical/simulation algorithms.
+module_name_repetitions = "allow"
+must_use_candidate = "allow"
+doc_markdown = "allow"
+cast_possible_truncation = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"
+similar_names = "allow"
+too_many_lines = "allow"
+# Several pedantic lints argue against the thing that makes this code
+# reviewable. Each is allowed for a stated reason, not because it is
+# inconvenient.
+#
+# The mathematics is written with the variable names the mathematics uses:
+# `a`, `b`, `x`, `y`, `p`, `q`.
+many_single_char_names = "allow"
+# Comparisons here are bit-exact by design: a coordinate either is the double it should be or is not.
+float_cmp = "allow"
+# `Fraction::cmp`, `Elem::equals` and friends are deliberately not `Ord`/`PartialEq`:
+# comparing algebraic numbers can fail, and can mutate the field they share.
+should_implement_trait = "allow"
+wrong_self_convention = "allow"
+# `f64::midpoint` is not `(a + b) / 2`: it is computed differently and can
+# round differently in the last bit. Every site this fires on is a rendering
+# coordinate or a step inside `fdlibm`, where the expression written is the
+# one intended and the inputs cannot overflow. Taking the suggestion would
+# move pixels to no purpose.
+manual_midpoint = "allow"
+# Errors and panics are documented in prose where they matter, and mechanical
+# sections would bury it.
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+# Polynomial degrees are signed, because -1 is the degree of the zero
+# polynomial, so index arithmetic crosses between `usize` and `isize`
+# constantly. The values are coefficient counts, and they do not approach `isize::MAX`.
+cast_possible_wrap = "allow"
+# Baked tables are IEEE-754 bit patterns and exact coordinates. Digit groups would make them harder to check.
+unreadable_literal = "allow"
+# `trim`, `reduce` and friends return `&mut Self` so they can be chained. They are called for the mutation, not the value.
+return_self_not_must_use = "allow"

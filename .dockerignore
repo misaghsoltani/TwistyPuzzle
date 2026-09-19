@@ -1,0 +1,86 @@
+# Everything the image does not need to build the extension.
+#
+# Without this file the build context is the whole working tree, which is
+# gigabytes: `target/` alone is ~2G and `.pixi/` ~1G. Docker sends the context
+# to the daemon before the first instruction runs, so an unfiltered context
+# costs that transfer on every single build, across every platform in the
+# matrix, before any compilation starts.
+
+# Build output. The container compiles from scratch against its own toolchain;
+# a host `target/` is the wrong architecture and would only be overwritten.
+target/
+**/target/
+
+# Conda environments managed by pixi. Host-specific, and the containers use uv.
+.pixi/
+
+# Version control. The build reads no git metadata.
+.git/
+.gitignore
+.gitattributes
+.github/
+
+# Docker's own files: including them would invalidate the context on every
+# edit to a Dockerfile or to the bake matrix, for every target, none of which
+# reads them from inside the build.
+docker/
+docker-bake.hcl
+.dockerignore
+
+# Rendered images and generated documentation. Nothing in any build reads
+# them, and README.md points at them over https rather than from disk.
+docs/
+
+# `crates/` is deliberately NOT excluded, though it never reaches the wheel:
+# crates/gui is a workspace member named by the root Cargo.toml, so Cargo
+# refuses to parse the workspace at all without its manifest, and the desktop
+# image builds from it.
+
+# Editor and tool state.
+.vscode/
+.idea/
+.claude/
+.codegraph/
+*.swp
+*.swo
+*~
+
+# Caches, which are host-specific and would poison a fresh build.
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyrefly/
+__pycache__/
+**/__pycache__/
+*.py[cod]
+
+# Python build artifacts. A stale host-built extension shadowing the one the
+# container builds is the exact failure this whole harness exists to catch.
+dist/
+build/
+*.egg-info/
+.eggs/
+*.whl
+*.so
+*.dylib
+*.pyd
+*.dll
+
+# Virtual environments.
+.venv/
+venv/
+ENV/
+env/
+
+# Operating system noise.
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+[Dd]esktop.ini
+
+# Secrets must never reach an image layer.
+.env
+.env.*
+!.env.example

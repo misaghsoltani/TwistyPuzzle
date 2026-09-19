@@ -1,0 +1,99 @@
+# Rust / Cargo
+/target/
+**/*.rs.bk
+**/*.pdb
+*.profraw
+*.profdata
+
+# Web / Node / Bundler
+node_modules/
+/build/
+/dist/
+*.tsbuildinfo
+*.js.map
+
+# Package manager logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Pixi environments
+.pixi/*
+!.pixi/config.toml
+
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python packaging & distribution
+*.egg-info/
+.eggs/
+*.egg
+*.whl
+
+# Python native extensions (PyO3 / Maturin outputs)
+*.so
+*.dylib
+*.pyd
+*.dll
+
+# Python virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# Python testing, linting, and type checking
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.pyrefly/
+.pyre/
+.pytype/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Operating system files
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+Thumbs.db
+Thumbs.db:encryptable
+ehthumbs.db
+ehthumbs_vista.db
+[Dd]esktop.ini
+
+# IDE and editor files
+.idea/
+*.iml
+*.ipr
+*.iws
+.vscode/*
+!.vscode/settings.json
+*.swp
+*.swo
+*~
+
+# Built extension modules, which land next to the package when installed
+# editable.
+/python/twistypuzzle/*.so
+/python/twistypuzzle/*.pyd
+/python/twistypuzzle/*.dylib
+
+# Output collected from the container builds (docker buildx bake wheels,
+# gui-screenshot).
+/docker/out/

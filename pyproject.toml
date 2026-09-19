@@ -1,0 +1,94 @@
+[build-system]
+requires = ["maturin>=1.9,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "twistypuzzle"
+version = "0.1.0"
+description = "Twisty puzzle simulator"
+readme = "README.md"
+# No upper bound: the wheels are built against the stable ABI, so one of them
+# serves every CPython from 3.10 onward, including versions not yet released.
+requires-python = ">=3.10"
+license = "MIT"
+authors = [{ name = "Misagh Soltani", email = "msoltani@email.sc.edu" }]
+keywords = [
+    "twisty-puzzle",
+    "rubik",
+    "algebraic-number",
+    "polyhedron",
+    "gymnasium",
+    "reinforcement-learning",
+]
+classifiers = [
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Rust",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: Free Threading :: 3 - Stable",
+    "Programming Language :: Python :: Implementation :: CPython",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Topic :: Multimedia :: Graphics :: 3D Rendering",
+    "Typing :: Typed",
+]
+dependencies = []
+
+[project.urls]
+Homepage = "https://github.com/misaghsoltani/TwistyPuzzle"
+Source = "https://github.com/misaghsoltani/TwistyPuzzle"
+Issues = "https://github.com/misaghsoltani/TwistyPuzzle/issues"
+
+[project.optional-dependencies]
+# Only for `numpy.asarray(image)`. The package itself needs nothing.
+numpy = ["numpy>=2.0"]
+# The Gymnasium environments in `twistypuzzle.gym`.
+gymnasium = ["gymnasium>=1.0", "numpy>=2.0"]
+gym = ["twistypuzzle[gymnasium]"]
+# The desktop application. A separate distribution because an extra can only
+# pull in distributions, and because the interface is a native binary that most
+# users of the library have no use for.
+gui = ["twistypuzzle-gui==0.1.0"]
+all = ["twistypuzzle[gui,gymnasium]"]
+test = ["pytest>=7", "gymnasium>=1.0", "numpy>=2.0"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests/python"]
+addopts = "--import-mode=importlib"
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+module-name = "twistypuzzle._native"
+python-source = "python"
+strip = true
+# Everything the sdist needs to rebuild the extension, and nothing else.
+include = [
+    { path = "Cargo.lock", format = "sdist" },
+    { path = "build.rs", format = "sdist" },
+    { path = "src/**/*.rs", format = "sdist" },
+    { path = "tests/python/**/*.py", format = "sdist" },
+    { path = "scripts/**/*.py", format = "sdist" },
+    { path = "SEMANTICS.md", format = "sdist" },
+    { path = "LICENSE*", format = "sdist" },
+]
+# Recorded test fixtures, images and the desktop crate are not needed to build
+# the extension, and are most of the repository's bulk.
+exclude = [
+    ".github/**",
+    "crates/**",
+    ".vscode/**",
+    "dist/**",
+    "docs/**",
+    "target/**",
+    "tools/**",
+    "pixi.lock",
+    "pixi.toml",
+    "pyrefly.toml",
+    "ruff.toml",
+    "rustfmt.toml",
+]

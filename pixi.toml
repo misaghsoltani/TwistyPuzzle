@@ -1,0 +1,187 @@
+[workspace]
+name = "TwistyPuzzle"
+version = "0.1.0"
+description = "Twisty puzzle simulator"
+authors = ["Misagh Soltani <msoltani@email.sc.edu>"]
+channels = ["conda-forge"]
+platforms = ["osx-arm64", "osx-64", "linux-64", "win-64", "linux-aarch64"]
+
+[activation.env]
+PYTHONNOUSERSITE = "1"
+
+[dependencies]
+python = ">=3.10"
+make = "*"
+
+[tasks]
+all = { depends-on = [
+    "fmt-check",
+    "lint",
+    "test",
+], description = "Run formatting checks, linters, and all test suites" }
+
+# ------------------------------------------------------------------------------
+# Feature: Build (Rust backend compilation and Python native wheel packaging)
+# ------------------------------------------------------------------------------
+[feature.build.dependencies]
+rust = ">=1.82"
+maturin = ">=1.8, <2.0"
+
+[feature.build.tasks]
+check = { cmd = "cargo check --all-targets --all-features", description = "Typecheck and verify all Rust targets and features" }
+cargo-build = { cmd = "cargo build --release", description = "Build Rust release binaries and libraries" }
+develop = { cmd = "maturin develop --release", description = "Compile and install native extension into active environment" }
+build-wheel = { cmd = "maturin build --release", description = "Build release wheel into target/wheels/" }
+build-wheel-interpreter = { cmd = "maturin build --release --interpreter python", description = "Build release wheel for the active environment Python interpreter into target/wheels/" }
+
+# ------------------------------------------------------------------------------
+# Feature: Test (Rust test suite, Python pytest)
+# ------------------------------------------------------------------------------
+[feature.test.dependencies]
+pytest = ">=7"
+numpy = ">=2.0, <3"
+
+[feature.test.pypi-dependencies]
+gymnasium = ">=1.0"
+
+[feature.test.tasks]
+test-rust = { cmd = "cargo test --release --no-default-features", description = "Run standard Rust test suite" }
+test-python = { cmd = "pytest tests/python", depends-on = [
+    "develop",
+], description = "Run Python pytest suite against installed native extension" }
+test = { cmd = "cargo test --release --no-default-features && pytest tests/python", depends-on = [
+    "develop",
+], description = "Run all Rust and Python test suites" }
+
+# ------------------------------------------------------------------------------
+# Feature: Lint & Quality (Rust clippy/rustfmt, Python ruff/pyrefly, Makefile mbake)
+# ------------------------------------------------------------------------------
+[feature.lint.dependencies]
+ruff = "*"
+pyrefly = "*"
+mypy = "*"
+pyright = "*"
+ty = "*"
+numpy = ">=2.0, <3"
+
+[feature.lint.pypi-dependencies]
+mbake = "*"
+gymnasium = ">=1.0"
+
+[feature.lint.tasks]
+clippy = { cmd = "cargo clippy --all-targets --all-features", description = "Run cargo clippy on all targets and features" }
+clippy-fix = { cmd = "cargo clippy --fix --allow-dirty --allow-staged --all-targets --all-features", description = "Automatically apply cargo clippy fixes" }
+fmt-rust = { cmd = "cargo fmt --all", description = "Format Rust codebase with rustfmt" }
+fmt-rust-check = { cmd = "cargo fmt --all -- --check", description = "Check Rust code formatting with rustfmt" }
+fmt-python = { cmd = "ruff format", description = "Format Python code with ruff format" }
+fmt-python-check = { cmd = "ruff format --check", description = "Check Python code formatting with ruff format" }
+fmt = { cmd = "cargo fmt --all && ruff format", description = "Format both Rust and Python codebases" }
+format = { cmd = "cargo fmt --all && ruff format", description = "Alias for fmt" }
+fmt-check = { cmd = "cargo fmt --all -- --check && ruff format --check", description = "Check formatting of both Rust and Python codebases" }
+lint-rust = { cmd = "cargo clippy --all-targets --all-features", description = "Lint Rust code with clippy" }
+lint-python = { cmd = "ruff check", description = "Lint Python code with ruff" }
+typecheck-pyrefly = { cmd = "pyrefly check", description = "Typecheck Python codebase with pyrefly" }
+typecheck-mypy = { cmd = "mypy", description = "Typecheck Python codebase with mypy" }
+typecheck-pyright = { cmd = "pyright", description = "Typecheck Python codebase with pyright" }
+typecheck-ty = { cmd = "ty check", description = "Typecheck Python codebase with ty" }
+mypy = { cmd = "mypy", description = "Typecheck Python codebase with mypy" }
+pyright = { cmd = "pyright", description = "Typecheck Python codebase with pyright" }
+ty = { cmd = "ty check", description = "Typecheck Python codebase with ty" }
+typecheck = { cmd = "pyrefly check && mypy && pyright && ty check", description = "Run all Python typecheckers (pyrefly, mypy, pyright, ty)" }
+lint = { cmd = "cargo clippy --all-targets --all-features && ruff check && pyrefly check && mypy && pyright && ty check", description = "Run all linters and typecheckers (clippy, ruff, pyrefly, mypy, pyright, ty)" }
+fix = { cmd = "cargo clippy --fix --allow-dirty --allow-staged --all-targets --all-features && cargo fmt --all && ruff check --fix --unsafe-fixes && ruff format", description = "Auto-fix all lint and formatting issues across Rust and Python" }
+ruff-all = { args = [
+    { arg = "dir", default = "." },
+], cmd = "ruff check --fix --unsafe-fixes {{ dir }}; ruff format {{ dir }}", description = "Run all ruff checks and formatting" }
+
+# ------------------------------------------------------------------------------
+# Feature: Dev & Tooling (benchmarking, catalog sheets, code generation)
+# ------------------------------------------------------------------------------
+[feature.dev.dependencies]
+requests = "*"
+sympy = "*"
+matplotlib = ">=3.0, <4"
+pillow = "*"
+fonttools = "*"
+
+[feature.dev.tasks]
+bench-rust = { cmd = "cargo run --release --example bench", description = "Run Rust benchmark example" }
+bench-threads = { cmd = "python scripts/bench_threads.py", depends-on = [
+    "develop",
+], description = "Benchmark thread scaling across Python threads" }
+bench = { depends-on = [
+    "bench-rust",
+    "bench-threads",
+], description = "Run both Rust and Python benchmarks" }
+catalog-sheet = { cmd = "python scripts/catalog_sheet.py -o docs/catalog.png", depends-on = [
+    "develop",
+], description = "Generate labeled contact sheet of all cataloged puzzles" }
+gen-font = { cmd = "python tools/gen_font.py", description = "Regenerate src/render/font_data.rs from glyph drawings" }
+gui = { cmd = "cargo run --release -p twistypuzzle-gui", description = "Open the desktop interface" }
+gui-build = { cmd = "cargo build --release -p twistypuzzle-gui", description = "Build the desktop interface" }
+gui-wheel = { cmd = "maturin build --release --manifest-path crates/gui/Cargo.toml -o target/wheels", description = "Build the twistypuzzle-gui wheel into target/wheels/" }
+gui-screenshot = { cmd = "cargo run --release -p twistypuzzle-gui --example screenshot -- docs/gui.png", description = "Render the interface to docs/gui.png without opening a window" }
+
+# ------------------------------------------------------------------------------
+# Feature: Free-threading (Python 3.14+ no-GIL / free-threaded interpreter)
+# ------------------------------------------------------------------------------
+[feature.free-threading.dependencies]
+python-freethreading = ">=3.14.0,<3.15.0"
+
+[feature.free-threading.tasks]
+check-gil = { cmd = "python -X gil=0 -c \"import sys, twistypuzzle; assert not sys._is_gil_enabled(), 'GIL is still enabled!'; assert twistypuzzle.free_threaded, 'twistypuzzle not compiled with free-threading support'; print('✓ Free-threaded Python verified: GIL disabled, twistypuzzle.free_threaded is True')\"", depends-on = [
+    "develop",
+], description = "Verify that GIL is disabled and native extension is compiled for free-threading" }
+test-free-threaded = { cmd = "python -X gil=0 -m pytest tests/python", depends-on = [
+    "develop",
+], description = "Run Python test suite under free-threaded Python" }
+bench-free-threaded = { cmd = "python -X gil=0 scripts/bench_threads.py", depends-on = [
+    "develop",
+], description = "Benchmark thread scaling under free-threaded Python" }
+build-wheel-free-threaded = { cmd = "maturin build --release --interpreter python", description = "Build free-threaded Python wheel for CPython 3.14t into target/wheels/" }
+
+# ------------------------------------------------------------------------------
+# Features: Python Version Matrix (for compatibility testing across 3.10-3.14)
+# ------------------------------------------------------------------------------
+[feature.py310.dependencies]
+python = "3.10.*"
+
+[feature.py311.dependencies]
+python = "3.11.*"
+
+[feature.py312.dependencies]
+python = "3.12.*"
+
+[feature.py313.dependencies]
+python = "3.13.*"
+
+[feature.py314.dependencies]
+python = "3.14.*"
+
+# ------------------------------------------------------------------------------
+# Environments: Composed from features according to official Pixi best practices
+# ------------------------------------------------------------------------------
+[environments]
+# Default developer environment: includes build, test, lint, and dev features
+default = { features = [
+    "build",
+    "test",
+    "lint",
+    "dev",
+], solve-group = "default" }
+dev = { features = ["build", "test", "lint", "dev"], solve-group = "default" }
+
+# Specialized isolated environments
+build = { features = ["build"], solve-group = "default" }
+test = { features = ["build", "test"], solve-group = "default" }
+lint = { features = ["build", "lint"], solve-group = "default" }
+
+# Free-threaded Python (no-GIL) environment
+free-threading = { features = ["build", "test", "dev", "free-threading"] }
+
+# Python version compatibility test environments
+py310 = { features = ["py310", "build", "test"] }
+py311 = { features = ["py311", "build", "test"] }
+py312 = { features = ["py312", "build", "test"] }
+py313 = { features = ["py313", "build", "test"] }
+py314 = { features = ["py314", "build", "test"] }

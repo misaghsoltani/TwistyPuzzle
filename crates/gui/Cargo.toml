@@ -1,0 +1,50 @@
+[package]
+name = "twistypuzzle-gui"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+authors = ["Misagh Soltani <msoltani@email.sc.edu>"]
+description = "Desktop interface for the twistypuzzle simulator"
+license = "MIT"
+repository = "https://github.com/misaghsoltani/TwistyPuzzle"
+
+[[bin]]
+name = "twistypuzzle-gui"
+path = "src/main.rs"
+
+[dependencies]
+# `default-features = false` keeps the Python bindings out: this is a plain
+# binary and has no interpreter to link against.
+twistypuzzle = { path = "../..", version = "0.1.0", default-features = false }
+# The software renderer, not a GPU one: the simulator draws its own frames
+# without a GPU, and the window that shows them should not need one either.
+slint = { version = "1.17", default-features = false, features = [
+    "compat-1-2",
+    "std",
+    "backend-winit",
+    "renderer-software",
+    "unstable-winit-030",
+] }
+
+# The Linux manylinux build is cross-compiled. Enable Slint's feature on the
+# shared dependency so fontique uses its runtime-loaded fontconfig backend
+# instead of asking pkg-config for a target sysroot that is not in the image.
+[target.'cfg(any(target_os = "linux", target_os = "freebsd"))'.dependencies]
+i-slint-common = { version = "1.17", default-features = false, features = [
+    "fontconfig-dlopen",
+] }
+
+[build-dependencies]
+slint-build = "1.17"
+
+[lints.rust]
+# The interface is generated code, which allows itself unsafe for its vtables,
+# while `deny` lets it while still stopping any unsafe written here by hand.
+unsafe_code = "deny"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+pedantic = { level = "warn", priority = -1 }
+cast_possible_truncation = "allow"
+cast_precision_loss = "allow"
+cast_sign_loss = "allow"

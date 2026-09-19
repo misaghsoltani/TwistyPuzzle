@@ -1,0 +1,317 @@
+name: Test PyPI
+
+# Publish to Test PyPI.
+on:
+  workflow_dispatch:
+    inputs:
+      skip-existing:
+        description: >-
+          Continue when a file is already on Test PyPI. Enable this when
+          re-running tests against a version that has already been uploaded.
+        type: boolean
+        default: true
+
+  # Pre-release tags trigger a Test PyPI rehearsal automatically.
+  # The validate job below enforces the exact forms:
+  # v1.2.3rc1, v1.2.3b2, v1.2.3a1.
+  push:
+    tags:
+      - "v*rc*"
+      - "v*a*"
+      - "v*b*"
+
+permissions: {}
+
+jobs:
+  # Validate the package version before spending time building wheels.
+  validate:
+    name: Validate release metadata
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    outputs:
+      version: ${{ steps.package.outputs.version }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Validate package version
+        id: package
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          version="$(
+            python - <<'PY'
+          import tomllib
+
+          with open("pyproject.toml", "rb") as f:
+              data = tomllib.load(f)
+
+          print(data["project"]["version"])
+          PY
+          )"
+
+          if [[ -z "$version" ]]; then
+            echo "Could not determine the project version from pyproject.toml." >&2
+            exit 1
+          fi
+
+          echo "Package version: $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            tag="$GITHUB_REF_NAME"
+
+            if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(a|b|rc)[0-9]+$ ]]; then
+              echo "Invalid Test PyPI release tag: $tag" >&2
+              echo "Expected a tag such as:" >&2
+              echo "  v1.2.3a1" >&2
+              echo "  v1.2.3b1" >&2
+              echo "  v1.2.3rc1" >&2
+              exit 1
+            fi
+
+            tag_version="${tag#v}"
+
+            if [[ "$tag_version" != "$version" ]]; then
+              echo "Tag and package versions do not match:" >&2
+              echo "  tag:        $tag_version" >&2
+              echo "  pyproject:  $version" >&2
+              exit 1
+            fi
+          fi
+
+  build:
+    name: Build
+    needs: [validate]
+    uses: ./.github/workflows/build-wheels.yml
+
+    permissions:
+      contents: read
+
+  publish:
+    name: Publish to Test PyPI
+    needs: [build]
+    runs-on: ubuntu-latest
+
+    environment:
+      name: testpypi-twistypuzzle
+      url: https://test.pypi.org/project/twistypuzzle/
+
+    permissions:
+      # Access artifacts produced by the build job.
+      actions: read
+
+      # Required for PyPI Trusted Publishing (OIDC).
+      id-token: write
+
+    steps:
+      - name: Download distributions
+        uses: actions/download-artifact@v8
+        with:
+          pattern: wheels-*
+          merge-multiple: true
+          path: dist
+
+      - name: Show distributions
+        shell: bash
+        run: |
+          set -euo pipefail
+          find dist -maxdepth 1 -type f -printf '%f\n' | sort
+
+      - name: Publish to Test PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+          packages-dir: dist
+
+          # Generate provenance attestations using Trusted Publishing.
+          attestations: true
+
+          # For workflow_dispatch, honor the input.
+          # For tag pushes, this evaluates to false.
+          skip-existing: ${{ github.event_name == 'workflow_dispatch' && inputs['skip-existing'] }}
+
+  # Resolve and install the exact package version that was just published.
+  install-from-index:
+    name: Install Python ${{ matrix.python }} from Test PyPI
+    needs: [validate, publish]
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python:
+          - "3.10"
+          - "3.13"
+          - "3.14"
+          - "3.14t"
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Python ${{ matrix.python }}
+        uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v10.1.0
+        with:
+          enable-cache: true
+
+      - name: Install the exact base package from Test PyPI
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          for attempt in 1 2 3 4 5; do
+            echo "Installing twistypuzzle==$VERSION from Test PyPI (attempt $attempt/5)"
+
+            if uv pip install \
+              --system \
+              --no-deps \
+              --index-url https://test.pypi.org/simple/ \
+              "twistypuzzle==$VERSION"
+            then
+              exit 0
+            fi
+
+            if (( attempt < 5 )); then
+              delay=$((attempt * 15))
+              echo "Package not visible yet; retrying in ${delay}s."
+              sleep "$delay"
+            fi
+          done
+
+          echo "twistypuzzle==$VERSION never became installable from Test PyPI." >&2
+          exit 1
+
+      # If this fails, the base package has an undeclared dependency on one
+      # of its own optional extras.
+      - name: Verify the base install is self-contained
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          python - <<'PY'
+          import importlib.util
+          import os
+          import sys
+
+          for forbidden in ("gymnasium", "numpy"):
+              if importlib.util.find_spec(forbidden) is not None:
+                  sys.exit(
+                      f"a bare install of twistypuzzle pulled in {forbidden}"
+                  )
+
+          import twistypuzzle as tp
+
+          expected = os.environ["VERSION"]
+
+          if tp.__version__ != expected:
+              sys.exit(
+                  f"installed version {tp.__version__!r} "
+                  f"does not match expected version {expected!r}"
+              )
+
+          print("base install is self-contained:", tp.__version__)
+
+          p = tp.Puzzle.named("Rubik's Cube (3x3x3)")
+          print("pieces:", p.piece_count)
+          PY
+
+      - name: Verify the Test PyPI wheel preserves free-threading
+        if: endsWith(matrix.python, 't')
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          python -X gil=0 - <<'PY'
+          import os
+          import sys
+
+          import twistypuzzle as tp
+
+          expected = os.environ["VERSION"]
+
+          assert tp.__version__ == expected, (
+              f"installed {tp.__version__}, expected {expected}"
+          )
+          assert not sys._is_gil_enabled(), (
+              "Test PyPI wheel re-enabled the GIL"
+          )
+          assert tp.free_threaded, (
+              "Test PyPI wheel is not free-threaded"
+          )
+
+          print(
+              "Test PyPI free-threaded wheel verified; "
+              "the GIL stays disabled"
+          )
+          PY
+
+      - name: Install the gym extra and its dependencies
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+
+          # Dependencies such as gymnasium/numpy normally live on PyPI rather
+          # than Test PyPI, so allow uv to resolve candidates from both.
+          UV_INDEX_STRATEGY: unsafe-best-match
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          uv pip install \
+            --system \
+            --index-url https://test.pypi.org/simple/ \
+            --extra-index-url https://pypi.org/simple/ \
+            "twistypuzzle[gym]==$VERSION"
+
+      - name: Verify the gym environments
+        env:
+          VERSION: ${{ needs.validate.outputs.version }}
+        working-directory: ${{ runner.temp }}
+        run: |
+          python - <<'PY'
+          import os
+
+          import gymnasium as gym
+          import twistypuzzle as tp
+          import twistypuzzle.gym  # Registers the environment IDs.
+
+          expected = os.environ["VERSION"]
+
+          assert tp.__version__ == expected, (
+              f"installed {tp.__version__}, expected {expected}"
+          )
+
+          env = gym.make(
+              "twistypuzzle/Puzzle-v0",
+              scramble=5,
+          )
+
+          obs, info = env.reset(seed=0)
+
+          print(
+              "gym extra works, observation:",
+              obs.shape,
+          )
+
+          env.close()
+          PY

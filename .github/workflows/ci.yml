@@ -1,0 +1,240 @@
+name: CI
+
+on:
+  # push:
+  #   branches: [main, master]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# The default token is read-only for every job here, and nothing in CI writes to the repository.
+# `release.yml` grants what it needs per job.
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  CARGO_INCREMENTAL: 0
+  UV_NO_PROGRESS: 1
+  MATURIN_VERSION: ">=1.9,<2.0"
+
+jobs:
+  rust:
+    name: Rust on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Formatting
+        run: cargo fmt --all -- --check
+
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features
+
+      - name: Tests
+        run: cargo test --release
+
+      - name: Tests with every integer widened
+        # Test that the inline small-integer path is observationally equal to arbitrary precision.
+        # Slow, so one platform is enough.
+        if: matrix.os == 'ubuntu-latest'
+        run: cargo test --release --features bigint-only
+
+  python:
+    name: Python ${{ matrix.python }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.10", "3.11", "3.12", "3.13", "3.14", "3.14t"]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: astral-sh/setup-uv@v10.1.0
+        with:
+          enable-cache: true
+
+      # maturin goes in its own tool environment rather than into the interpreter under test.
+      - name: Install maturin
+        run: uv tool install "maturin${{ env.MATURIN_VERSION }}"
+
+      - name: Build and install the extension
+        run: |
+          maturin build --release --out dist --interpreter python
+          uv pip install --system pytest
+          uv pip install --system --no-index --find-links dist twistypuzzle
+
+      # Checked while the extras are still absent.
+      - name: The base install must not need the optional extras
+        working-directory: ${{ runner.temp }}
+        run: |
+          python -c "
+          import importlib.util, sys
+          for forbidden in ('gymnasium', 'numpy'):
+              if importlib.util.find_spec(forbidden) is not None:
+                  sys.exit(f'a bare install of twistypuzzle pulled in {forbidden}')
+          import twistypuzzle
+          print('base install is self-contained:', twistypuzzle.__version__)
+          "
+
+      - name: Install the gym extra
+        run: uv pip install --system --find-links dist "twistypuzzle[gym]"
+
+      # From a directory that is not the repository root, so the tests run
+      # against the installed wheel rather than the source tree.
+      - name: Tests
+        working-directory: ${{ runner.temp }}
+        run: pytest -q "${{ github.workspace }}/tests/python" --import-mode=importlib
+
+      - name: The module must not re-enable the GIL
+        if: endsWith(matrix.python, 't')
+        run: |
+          python -X gil=0 -c "
+          import sys, twistypuzzle
+          assert not sys._is_gil_enabled(), 'importing twistypuzzle re-enabled the GIL'
+          assert twistypuzzle.free_threaded
+          print('free-threaded, GIL stays off')
+          "
+
+  gui:
+    name: Desktop interface on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      # winit needs the X11 and Wayland development headers to build, even for a binary that will run under neither.
+      - name: Linux windowing headers
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libxkbcommon-dev libwayland-dev libxcb1-dev
+
+      - name: Build
+        run: cargo build --release -p twistypuzzle-gui
+
+      # The interface renders to a PNG without opening a window.
+      - name: Render the interface headlessly
+        run: cargo run --release -p twistypuzzle-gui --example screenshot -- gui.png
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: gui-${{ matrix.os }}
+          path: gui.png
+
+  lint:
+    name: Python format, lint and types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - uses: astral-sh/setup-uv@v10.1.0
+        with:
+          enable-cache: true
+
+      - name: Install maturin and the checkers
+        run: |
+          uv tool install "maturin${{ env.MATURIN_VERSION }}"
+          uv pip install --system ruff pyrefly numpy gymnasium
+
+      # pyrefly resolves the package's own imports, so the extension and the libraries
+      # the annotations name have to be installed.
+      #
+      # Deliberately *not* `--release`: this job only needs the module to be
+      # importable so the checkers can resolve it, and the release profile is
+      # `lto = "fat"` with `codegen-units = 1`.
+      - name: Install the extension
+        run: |
+          maturin build --out dist --interpreter python
+          uv pip install --system --no-index --find-links dist twistypuzzle
+
+      - name: Formatting
+        run: ruff format --check .
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Types
+        run: pyrefly check
+
+  contact-sheet:
+    name: Catalog sheet
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14t"
+      - uses: astral-sh/setup-uv@v10.1.0
+        with:
+          enable-cache: true
+
+      - name: Build and draw every cataloged puzzle
+        run: |
+          uv tool install "maturin${{ env.MATURIN_VERSION }}"
+          maturin build --release --out dist --interpreter python
+          uv pip install --system --no-index --find-links dist twistypuzzle
+          python scripts/catalog_sheet.py -o catalog.png
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: catalog-sheet
+          path: catalog.png
+
+  # Everything above runs on a GitHub runner image. This job runs the same
+  # wheel build and test suite inside the manylinux and musllinux containers.
+  docker:
+    name: Containers on ${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Each architecture on a runner of that architecture.
+          - arch: x86_64
+            runner: ubuntu-latest
+            group: ci-amd64
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+            group: ci-arm64
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+
+      # `docker-bake.hcl` is at the repository root, so bake finds it without a `--file` and the build context is plainly `.`.
+      - name: Build and test in containers
+        run: docker buildx bake ${{ matrix.group }}
+        env:
+          BUILDKIT_PROGRESS: plain

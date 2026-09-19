@@ -1,0 +1,79 @@
+{
+  "include": [
+    "python",
+    "crates/gui/python"
+  ],
+  "exclude": [
+    "**/.*",
+    "**/.pixi",
+    "**/__pycache__",
+    "**/.pytest_cache",
+    "**/.mypy_cache",
+    "**/.ruff_cache",
+    "**/*.egg-info",
+    "**/build",
+    "**/dist",
+    "**/target",
+    "**/.git",
+    "**/.venv",
+    "**/node_modules",
+    "**/bower_components",
+    "**/logs",
+    "**/outputs",
+    "**/checkpoints",
+    "**/.cache",
+    "**/.tox",
+    "**/.eggs",
+    "**/docs"
+  ],
+  "ignore": [
+    "tests"
+  ],
+  "reportUnnecessaryTypeIgnoreComment": "warning",
+  "reportUnnecessaryCast": "warning",
+  "reportUnnecessaryComparison": "warning",
+  "reportUnnecessaryContains": "warning",
+  "reportUnnecessaryIsInstance": "warning",
+  "reportUnusedClass": "warning",
+  "reportUnusedExpression": "warning",
+  "reportCallIssue": "error",
+  "reportMissingImports": "error",
+  "reportMissingTypeStubs": false,
+  "typeCheckingMode": "basic",
+  "reportDeprecated": "warning",
+  "reportAssignmentType": "error",
+  "reportUnusedVariable": "warning",
+  "reportUnusedFunction": "warning",
+  "reportAssertAlwaysTrue": "warning",
+  "reportGeneralTypeIssues": "error",
+  "reportImportCycles": "warning",
+  "reportUnreachable": "warning",
+  "reportRedeclaration": "error",
+  "reportAttributeAccessIssue": "error",
+  "reportInconsistentConstructor": "warning",
+  "reportConstantRedefinition": "warning",
+  "reportIndexIssue": "error",
+  "reportMissingTypeArgument": "warning",
+  "reportUndefinedVariable": "error",
+  "reportUnusedImport": "warning",
+  "enableReachabilityAnalysis": true,
+  "deprecateTypingAliases": true,
+  "pythonPlatform": "All",
+  "venvPath": ".",
+  "venv": ".pixi/envs/default",
+  "executionEnvironments": [
+    {
+      "root": "python",
+      "extraPaths": [
+        "python"
+      ]
+    },
+    {
+      "root": "crates/gui/python",
+      "extraPaths": [
+        "crates/gui/python",
+        "python"
+      ]
+    }
+  ]
+}
