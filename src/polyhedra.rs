@@ -2,7 +2,7 @@
 //!
 //! The tables in [`polyhedra_data`] are exact: every plane is a rational
 //! combination of radicals, simplified symbolically once and written down,
-//! rather than computed numerically at run time. They are data, not code, and
+//! instead of computed numerically at run time. They are data, not code, and
 //! are not meant to be edited by hand.
 //!
 //! Encoding (prefix notation):
@@ -59,15 +59,11 @@ impl Decoder<'_> {
                 let (n, d) = s
                     .split_once('/')
                     .ok_or_else(|| Error::Other("malformed rational in table".into()))?;
-                let n = Int::parse(n)
-                    .ok_or_else(|| Error::Other("malformed numerator in table".into()))?;
-                let d = Int::parse(d)
-                    .ok_or_else(|| Error::Other("malformed denominator in table".into()))?;
+                let n = Int::parse(n).ok_or_else(|| Error::Other("malformed numerator in table".into()))?;
+                let d = Int::parse(d).ok_or_else(|| Error::Other("malformed denominator in table".into()))?;
                 Ok(Expr::num(Fraction::new(n, d, true)?))
             },
-            other => Err(Error::Other(format!(
-                "unexpected byte {other:?} in polyhedron table"
-            ))),
+            other => Err(Error::Other(format!("unexpected byte {other:?} in polyhedron table"))),
         }
     }
 }

@@ -25,7 +25,7 @@ GUI_SCREENSHOT_OUT ?= docs/gui.png
 	test test-rust test-bigint test-python \
 	fmt format fmt-rust fmt-python fmt-check \
 	lint lint-rust lint-python typecheck clippy fix \
-	bench bench-rust bench-threads \
+	bench bench-rust bench-batch bench-threads \
 	catalog-sheet gen-font \
 	gui gui-build gui-wheel gui-screenshot \
 	check-gil test-free-threaded bench-free-threaded \
@@ -104,10 +104,13 @@ fix: ## Auto-fix Rust and Python lint/format issues
 	$(RUFF) check --fix --unsafe-fixes
 	$(RUFF) format
 
-bench: bench-rust bench-threads ## Run Rust and Python benchmark paths
+bench: bench-rust bench-batch bench-threads ## Run every benchmark path
 
 bench-rust: ## Run Rust benchmark example
 	$(CARGO) run --release --example bench
+
+bench-batch: ## Benchmark a batch against one puzzle at a time
+	$(CARGO) run --release --example bench_batch
 
 bench-threads: develop ## Benchmark Python thread scaling
 	$(PYTHON) scripts/bench_threads.py

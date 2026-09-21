@@ -1,6 +1,6 @@
 [workspace]
 name = "TwistyPuzzle"
-version = "0.1.0"
+version = "0.1.1"
 description = "Twisty puzzle simulator"
 authors = ["Misagh Soltani <msoltani@email.sc.edu>"]
 channels = ["conda-forge"]
@@ -106,13 +106,17 @@ fonttools = "*"
 
 [feature.dev.tasks]
 bench-rust = { cmd = "cargo run --release --example bench", description = "Run Rust benchmark example" }
+bench-batch = { cmd = "cargo run --release --example bench_batch", description = "Benchmark a batch against turning and drawing puzzles one at a time" }
+bench-frame = { cmd = "cargo run --release --example bench_frame", description = "Benchmark one interactive frame, with and without the buffers kept between frames" }
 bench-threads = { cmd = "python scripts/bench_threads.py", depends-on = [
     "develop",
 ], description = "Benchmark thread scaling across Python threads" }
 bench = { depends-on = [
     "bench-rust",
+    "bench-batch",
+    "bench-frame",
     "bench-threads",
-], description = "Run both Rust and Python benchmarks" }
+], description = "Run all benchmarks" }
 catalog-sheet = { cmd = "python scripts/catalog_sheet.py -o docs/catalog.png", depends-on = [
     "develop",
 ], description = "Generate labeled contact sheet of all cataloged puzzles" }

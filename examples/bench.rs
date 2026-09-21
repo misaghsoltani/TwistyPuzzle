@@ -27,18 +27,12 @@ fn grips_of(puzzle: &mut Puzzle) -> Vec<Cut> {
             grips.push(cut.neg());
         }
     }
-    twistypuzzle::sort::sort_by(&mut grips, |a, b| {
-        b.plane.constant.compare(&a.plane.constant)
-    })
-    .expect("sort");
+    twistypuzzle::sort::sort_by(&mut grips, |a, b| b.plane.constant.compare(&a.plane.constant)).expect("sort");
     grips
 }
 
 fn main() {
-    let nmoves: usize = std::env::var("NMOVES")
-        .ok()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(4);
+    let nmoves: usize = std::env::var("NMOVES").ok().and_then(|s| s.parse().ok()).unwrap_or(4);
     let render = std::env::var("RENDER").is_ok();
     let mut total_pieces = 0usize;
     let mut slowest: Vec<(u128, usize, String)> = Vec::new();

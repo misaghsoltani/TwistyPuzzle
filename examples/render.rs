@@ -24,9 +24,7 @@ fn main() {
     const N: u32 = 20;
 
     let mut args = std::env::args().skip(1);
-    let recipe_str = args
-        .next()
-        .unwrap_or_else(|| "?shell=C$1&cut=C$1/3".to_string());
+    let recipe_str = args.next().unwrap_or_else(|| "?shell=C$1&cut=C$1/3".to_string());
     let out = args.next().unwrap_or_else(|| "out.png".to_string());
     let size: u32 = args.next().and_then(|s| s.parse().ok()).unwrap_or(512);
 
@@ -40,10 +38,7 @@ fn main() {
     let meshes = PuzzleMeshes::build(&puzzle).expect("meshes");
     let tri_count: usize = meshes.pieces.iter().map(|m| m.triangles.len()).sum();
     let edge_count: usize = meshes.pieces.iter().map(|m| m.edges.len()).sum();
-    eprintln!(
-        "{tri_count} triangles, {edge_count} edges in {:?}",
-        t1.elapsed()
-    );
+    eprintln!("{tri_count} triangles, {edge_count} edges in {:?}", t1.elapsed());
 
     // Grips, as `draw_arrows` computes them.
     let mut grips: Vec<Cut> = Vec::new();
@@ -56,10 +51,7 @@ fn main() {
             grips.push(cut.neg());
         }
     }
-    twistypuzzle::sort::sort_by(&mut grips, |a, b| {
-        b.plane.constant.compare(&a.plane.constant)
-    })
-    .expect("sort");
+    twistypuzzle::sort::sort_by(&mut grips, |a, b| b.plane.constant.compare(&a.plane.constant)).expect("sort");
     let arrows = arrow_instances(&grips, puzzle.global_rot).expect("arrows");
     eprintln!("{} grips, {} arrows", grips.len(), arrows.len());
 
@@ -74,10 +66,7 @@ fn main() {
     let bg: Vec<u8> = bg.split(',').map(|v| v.parse().unwrap_or(255)).collect();
     let opts = SceneOptions {
         background: [bg[0], bg[1], bg[2], bg[3]],
-        supersample: std::env::var("SS")
-            .ok()
-            .and_then(|v| v.parse().ok())
-            .unwrap_or(2),
+        supersample: std::env::var("SS").ok().and_then(|v| v.parse().ok()).unwrap_or(2),
         draw_edges: std::env::var("EDGES").map_or(true, |v| v != "0"),
         draw_arrows: std::env::var("ARROWS").map_or(true, |v| v != "0"),
         draw_pieces: std::env::var("PIECES").map_or(true, |v| v != "0"),
@@ -85,37 +74,16 @@ fn main() {
     };
 
     let t2 = std::time::Instant::now();
-    let fb = render_frame(
-        &meshes,
-        &quats,
-        built.scale,
-        &arrows,
-        &camera,
-        size,
-        size,
-        &opts,
-    );
+    let fb = render_frame(&meshes, &quats, built.scale, &arrows, &camera, size, size, &opts);
     eprintln!("rendered {size}x{size} in {:?}", t2.elapsed());
 
     // Time a steady-state frame too.
     let t3 = std::time::Instant::now();
     for _ in 0..N {
-        let _ = render_frame(
-            &meshes,
-            &quats,
-            built.scale,
-            &arrows,
-            &camera,
-            size,
-            size,
-            &opts,
-        );
+        let _ = render_frame(&meshes, &quats, built.scale, &arrows, &camera, size, size, &opts);
     }
     let per = t3.elapsed() / N;
-    eprintln!(
-        "steady state: {per:?}/frame ({:.0} fps)",
-        1.0 / per.as_secs_f64()
-    );
+    eprintln!("steady state: {per:?}/frame ({:.0} fps)", 1.0 / per.as_secs_f64());
 
     // Color histogram, to check shading without relying on the eye.
     let mut hist: std::collections::HashMap<[u8; 4], usize> = std::collections::HashMap::new();

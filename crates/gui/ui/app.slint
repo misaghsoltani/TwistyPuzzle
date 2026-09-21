@@ -5,7 +5,8 @@ import { ComboBox, Slider, Palette } from "std-widgets.slint";
 /// Color palette tokens for dark, light, and system themes.
 global Theme {
     in-out property <int> mode: 2; // 0 = Dark (Moon), 1 = Light (Sun), 2 = Both (System)
-    out property <bool> is-dark: mode == 0 ? true : (mode == 1 ? false : Palette.color-scheme != ColorScheme.light);
+    in-out property <bool> system-is-dark: false;
+    out property <bool> is-dark: mode == 0 ? true : (mode == 1 ? false : system-is-dark);
 
     // Base grounds & surfaces
     out property <color> ground: is-dark ? #121418 : #f0f2f5;
@@ -418,11 +419,11 @@ export component MainWindow inherits Window {
     resize-border-width: 6px;
 
     init => {
-        Palette.color-scheme = ColorScheme.unknown;
         Theme.mode = 2;
+        Palette.color-scheme = Theme.system-is-dark ? ColorScheme.dark : ColorScheme.light;
     }
 
-    // --- what the Rust side puts here ---------------------------------------
+    // Rust application inputs
     in property <image> frame;
     in property <[string]> puzzle-names;
     in property <string> status;
@@ -436,16 +437,17 @@ export component MainWindow inherits Window {
     in property <bool> arrow-hovered: false;
     in-out property <bool> is-maximized: false;
 
-    // --- what the interface owns --------------------------------------------
+    // Interface state properties
     in-out property <int> puzzle-index: 0;
     in-out property <bool> show-arrows: true;
     in-out property <bool> show-edges: true;
     in-out property <float> scramble-depth: 20;
     in-out property <bool> animate-scramble: true;
     in-out property <int> theme-mode <=> Theme.mode;
+    in-out property <bool> system-is-dark <=> Theme.system-is-dark;
     out property <bool> is-dark <=> Theme.is-dark;
 
-    // --- what the Rust side listens for --------------------------------------
+    // Rust event callbacks
     callback viewport-resized(length, length);
     callback pointer-pressed(float, float);
     callback pointer-moved(float, float);
@@ -472,7 +474,15 @@ export component MainWindow inherits Window {
         } else if (mode == 1) {
             Palette.color-scheme = ColorScheme.light;
         } else {
-            Palette.color-scheme = ColorScheme.unknown;
+            Palette.color-scheme = Theme.system-is-dark ? ColorScheme.dark : ColorScheme.light;
+        }
+        root.theme-changed();
+    }
+
+    public function set-system-theme(dark: bool) {
+        Theme.system-is-dark = dark;
+        if (Theme.mode == 2) {
+            Palette.color-scheme = dark ? ColorScheme.dark : ColorScheme.light;
         }
         root.theme-changed();
     }
@@ -506,7 +516,7 @@ export component MainWindow inherits Window {
             padding: 0px;
             spacing: 0px;
 
-            // --- Window Top Bar ---------------------------------------------
+            // Window Top Bar
             top-bar := Rectangle {
                 height: 38px;
                 background: Theme.topbar-bg;
@@ -654,14 +664,14 @@ export component MainWindow inherits Window {
                 background: Theme.topbar-border;
             }
 
-            // --- Main Workspace: Viewport & Controls -------------------------
+            // Main Workspace: Viewport and Controls
             HorizontalLayout {
                 horizontal-stretch: 1;
                 vertical-stretch: 1;
                 padding: 0px;
                 spacing: 0px;
 
-                // --- 3D Viewport Stage ---------------------------------------
+                // Three dimensional Viewport Stage
                 stage := Rectangle {
                     horizontal-stretch: 1;
                     background: Theme.stage-bg;
@@ -810,7 +820,7 @@ export component MainWindow inherits Window {
                     background: Theme.divider;
                 }
 
-                // --- Sidebar Control Panel (291px + 1px divider = 292px) ------
+                // Sidebar Control Panel (291px plus 1px divider equals 292px)
                 Rectangle {
                     width: 291px;
                     background: Theme.sidebar-bg;

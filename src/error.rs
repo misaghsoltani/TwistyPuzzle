@@ -1,4 +1,4 @@
-//! The error type, whose variants name the kind of failure rather than the
+//! The error type, whose variants name the kind of failure instead of the
 //! place it happened, so the Python bindings can map each to the exception a
 //! caller would expect.
 
@@ -16,7 +16,7 @@ pub enum Error {
     Parse(String),
     /// A puzzle cannot be described or turned as asked. Distinct from the
     /// arithmetic failures above: it is raised by things that are about the
-    /// puzzle rather than the numbers, such as reading a state as a sticker
+    /// puzzle instead of the numbers, such as reading a state as a sticker
     /// array.
     State(String),
     /// Plain `Error`
@@ -61,7 +61,7 @@ pub type Result<T> = core::result::Result<T, Error>;
 ///
 /// Several algorithms here deliberately continue past a false assertion (such as
 /// dropping a degenerate face without halting), so turning these into panics
-/// would change control flow rather than just noise.
+/// would change control flow instead of just noise.
 #[macro_export]
 macro_rules! console_assert {
     ($cond:expr, $($arg:tt)*) => {

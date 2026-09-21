@@ -20,8 +20,8 @@ pub struct Polynomial<E: Elem, R: RingOps<E>> {
     pub degree: isize,
 }
 
-/// What `pseudo_divmod` hands back: the multiplier `p`, the quotient and the
-/// remainder, with `p * dividend == quotient * divisor + remainder`.
+/// Return type of `pseudo_divmod`: the multiplier `p`, the quotient, and the
+/// remainder, satisfying `p * dividend == quotient * divisor + remainder`.
 type PseudoDivision<E, R> = (E, Polynomial<E, R>, Polynomial<E, R>);
 
 impl<E: Elem, R: RingOps<E>> Polynomial<E, R> {
@@ -151,11 +151,7 @@ impl<E: Elem, R: RingOps<E>> Polynomial<E, R> {
         }
         let lo = (n as usize).min(c.len());
         let hi = ((m + 1).max(0) as usize).min(c.len());
-        let quot: Vec<E> = if lo <= hi {
-            c[lo..hi].to_vec()
-        } else {
-            Vec::new()
-        };
+        let quot: Vec<E> = if lo <= hi { c[lo..hi].to_vec() } else { Vec::new() };
         let rem: Vec<E> = c[..lo].to_vec();
         Ok((
             p,
@@ -472,10 +468,7 @@ fn neg_one_pow<E: Elem, R: RingOps<E>>(k: &R, e: isize) -> E {
 }
 
 /// Subresultant GCD (`polynomial.ts` `gcd`).
-pub fn gcd<E: Elem, R: RingOps<E>>(
-    a: &Polynomial<E, R>,
-    b: &Polynomial<E, R>,
-) -> Result<Polynomial<E, R>> {
+pub fn gcd<E: Elem, R: RingOps<E>>(a: &Polynomial<E, R>, b: &Polynomial<E, R>) -> Result<Polynomial<E, R>> {
     let k = a.coeff_ring.clone();
     let zero: Polynomial<E, R> = Polynomial::new(k.clone(), vec![]);
 
@@ -491,9 +484,7 @@ pub fn gcd<E: Elem, R: RingOps<E>>(
     let mut gamma: Option<E> = r1.lc().cloned();
 
     while !Elem::equals(&r1, &zero) {
-        let g_cur = gamma
-            .clone()
-            .expect("r1 is non-zero, so it has a leading coefficient");
+        let g_cur = gamma.clone().expect("r1 is non-zero, so it has a leading coefficient");
         let g = power(&k, &g_cur, &Int::from_i64((d + 1) as i64))?;
         let (_q, mut r2) = r0.smul(&g)?.divmod(&r1)?;
         r2.isdiv(&beta)?;

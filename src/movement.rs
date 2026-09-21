@@ -94,22 +94,10 @@ fn get_side(
         let mut xmax: Option<AlgebraicNumber> = None;
         for v in &piece.vertices {
             let x = axis.dot(v)?;
-            if xmin
-                .as_ref()
-                .map(|m| x.compare(m))
-                .transpose()?
-                .unwrap_or(-1)
-                < 0
-            {
+            if xmin.as_ref().map(|m| x.compare(m)).transpose()?.unwrap_or(-1) < 0 {
                 xmin = Some(x.clone());
             }
-            if xmax
-                .as_ref()
-                .map(|m| x.compare(m))
-                .transpose()?
-                .unwrap_or(1)
-                > 0
-            {
+            if xmax.as_ref().map(|m| x.compare(m)).transpose()?.unwrap_or(1) > 0 {
                 xmax = Some(x);
             }
         }
@@ -157,8 +145,25 @@ fn rotation_strings(puzzle: &Puzzle, piece_nums: &[usize]) -> Vec<Option<String>
     out
 }
 
-/// Every plane that touches but does not intersect the given pieces.
+/// Every plane that divides the given pieces without intersecting any of them.
 pub fn find_cuts(puzzle: &mut Puzzle, piece_nums: Option<&[usize]>) -> Result<Vec<Cut>> {
+    collect_planes(puzzle, piece_nums, true)
+}
+
+/// Every plane that misses the given pieces, whether or not it divides them.
+///
+/// A half made of a single piece has nothing to divide, so `find_cuts` finds
+/// no plane in it at all. That is too strict for [`find_stops`], which wants
+/// the planes that would still cut cleanly after the turn, and a plane that
+/// misses a half entirely cuts it as cleanly as one that splits it.
+fn clear_planes(puzzle: &mut Puzzle, piece_nums: &[usize]) -> Result<Vec<Cut>> {
+    collect_planes(puzzle, Some(piece_nums), false)
+}
+
+/// The two above. With `must_divide`, a plane counts only if pieces lie on
+/// both sides of it. Without, missing them all is enough and one of the
+/// returned sides may be empty.
+fn collect_planes(puzzle: &mut Puzzle, piece_nums: Option<&[usize]>, must_divide: bool) -> Result<Vec<Cut>> {
     let piece_nums: Vec<usize> = match piece_nums {
         Some(p) => p.to_vec(),
         None => (0..puzzle.pieces.len()).collect(),
@@ -204,7 +209,8 @@ pub fn find_cuts(puzzle: &mut Puzzle, piece_nums: Option<&[usize]>) -> Result<Ve
                 },
             }
         }
-        if is_cut && !front.is_empty() && !back.is_empty() {
+        let divides = !front.is_empty() && !back.is_empty();
+        if is_cut && (divides || !must_divide) {
             cuts.push(Cut::new(plane, front, back));
         }
     }
@@ -215,8 +221,20 @@ pub fn find_cuts(puzzle: &mut Puzzle, piece_nums: Option<&[usize]>) -> Result<Ve
 /// ordered by increasing angle.
 pub fn find_stops(puzzle: &mut Puzzle, cut: &Cut) -> Result<Vec<ExactQuaternion>> {
     let c = cut.plane.normal.clone();
-    let front_cuts = find_cuts(puzzle, Some(&cut.front))?;
-    let back_cuts = find_cuts(puzzle, Some(&cut.back))?;
+    let mut front_cuts = find_cuts(puzzle, Some(&cut.front))?;
+    let mut back_cuts = find_cuts(puzzle, Some(&cut.back))?;
+
+    // A half of one piece (a tip) is divided by nothing, so the pairing
+    // below would have nothing to pair and the grip would report no stop at
+    // all: it would be a grip that cannot turn, on a puzzle whose tips plainly
+    // do. Widen that half to every plane that misses it, which is what the
+    // criterion asks for in the first place. `SEMANTICS.md` §14.
+    if front_cuts.is_empty() {
+        front_cuts = clear_planes(puzzle, &cut.front)?;
+    }
+    if back_cuts.is_empty() {
+        back_cuts = clear_planes(puzzle, &cut.back)?;
+    }
 
     // All rotation angles that form a total cut.
     let mut stops: IndexMap<String, ExactQuaternion> = IndexMap::new();
@@ -228,10 +246,7 @@ pub fn find_stops(puzzle: &mut Puzzle, cut: &Cut) -> Result<Vec<ExactQuaternion>
             let h2 = c.dot(p2)?;
 
             // Skip planes parallel to the cut.
-            if Elem::equals(
-                &Elem::mul(&h1, &h1)?,
-                &Elem::mul(&c.dot(&c)?, &p1.dot(p1)?)?,
-            ) {
+            if Elem::equals(&Elem::mul(&h1, &h1)?, &Elem::mul(&c.dot(&c)?, &p1.dot(p1)?)?) {
                 continue;
             }
 
@@ -261,17 +276,16 @@ pub fn find_stops(puzzle: &mut Puzzle, cut: &Cut) -> Result<Vec<ExactQuaternion>
 
 /// Apply `rot` to the front half of `cut`.
 ///
-/// Piece 0 is immovable: a move that would turn it instead turns the rest of
-/// the puzzle the other way and accumulates the difference into `global_rot`.
+/// The front half and nothing else, so where the pieces end up is where the
+/// state says they are. A turn could equally rotate the *back* half the other
+/// way and spin the whole puzzle to compensate, which draws the same picture
+/// and leaves nothing standing still to number the slots against: the two
+/// differ by a rotation of the whole puzzle, and that rotation would have to
+/// be undone again before a state could be read (`SEMANTICS.md` §11).
+///
+/// `turnable_cuts` orients an off-center plane so its front is the smaller
+/// cap, so this is also the cheaper of the two.
 pub fn make_move(puzzle: &mut Puzzle, cut: &Cut, rot: &ExactQuaternion) -> Result<()> {
-    let mut rot = rot.clone();
-    let mut cut = cut.clone();
-    if cut.front.contains(&0) {
-        puzzle.global_rot = puzzle.global_rot.mul(&rot.to_f64()?).normalize();
-        rot = rot.conj();
-        cut = cut.neg();
-    }
-
     for &p in &cut.front {
         let new_rot = rot.mul(&puzzle.pieces[p].rot)?.pseudo_normalize()?;
         puzzle.pieces[p].rot = new_rot;

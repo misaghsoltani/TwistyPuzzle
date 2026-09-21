@@ -13,7 +13,7 @@
 //! every number in a field sees. Converting to `f64` refines until the answer
 //! is the correctly rounded double, which makes the result independent of how
 //! much narrowing came before it, and that is what keeps sort order, cache
-//! lookups and evaluation order ordinary implementation details rather than
+//! lookups and evaluation order ordinary implementation details instead of
 //! part of the contract. `SEMANTICS.md` lists the few things that are.
 
 pub mod batch;
@@ -25,6 +25,7 @@ mod color_tables;
 pub mod error;
 pub mod exact;
 pub mod fdlibm;
+pub mod layout;
 pub mod make;
 pub mod math;
 pub mod movement;

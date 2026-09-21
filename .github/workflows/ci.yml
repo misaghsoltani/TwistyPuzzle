@@ -74,7 +74,7 @@ jobs:
         with:
           enable-cache: true
 
-      # maturin goes in its own tool environment rather than into the interpreter under test.
+      # maturin goes in its own tool environment instead of into the interpreter under test.
       - name: Install maturin
         run: uv tool install "maturin${{ env.MATURIN_VERSION }}"
 
@@ -101,7 +101,7 @@ jobs:
         run: uv pip install --system --find-links dist "twistypuzzle[gym]"
 
       # From a directory that is not the repository root, so the tests run
-      # against the installed wheel rather than the source tree.
+      # against the installed wheel instead of the source tree.
       - name: Tests
         working-directory: ${{ runner.temp }}
         run: pytest -q "${{ github.workspace }}/tests/python" --import-mode=importlib

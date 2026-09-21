@@ -5,7 +5,7 @@ use indexmap::IndexMap;
 
 use super::camera::{Camera, Mat4};
 use super::framebuffer::{BlendMode, Framebuffer};
-use super::raster::{draw, Cull, DrawCall, RenderTarget};
+use super::raster::{draw_with, Cull, DrawCall, DrawScratch, RenderTarget};
 use crate::color::{linear_to_srgb_byte, Color};
 use crate::math::{Quat, Vec3};
 use crate::movement::{Cut, Puzzle};
@@ -33,6 +33,11 @@ pub struct PieceMesh {
     pub triangles: Vec<[Vec3; 3]>,
     pub colors: Vec<[u8; 4]>,
     pub edges: Vec<[Vec3; 2]>,
+    /// Which face of the piece each triangle came from, since a face of more
+    /// than three sides becomes a fan of them. What a sticker is drawn on is a
+    /// face, not a triangle, so anything that colors a frame by sticker needs
+    /// the way back.
+    pub faces: Vec<u32>,
 }
 
 /// Every edge between two faces that meet at more than `threshold_angle`.
@@ -115,7 +120,8 @@ pub fn edges_geometry(triangles: &[[Vec3; 3]], threshold_angle: f64) -> Vec<[Vec
 pub fn piece_mesh(piece: &crate::piece::PolyGeometry) -> Result<PieceMesh> {
     let mut triangles = Vec::new();
     let mut colors = Vec::new();
-    for pf in &piece.faces {
+    let mut faces = Vec::new();
+    for (fi, pf) in piece.faces.iter().enumerate() {
         let vs = &pf.vertices;
         if vs.len() < 3 {
             continue;
@@ -127,6 +133,7 @@ pub fn piece_mesh(piece: &crate::piece::PolyGeometry) -> Result<PieceMesh> {
             let vnext = to_f32(piece.vertices[vs[i + 1]].to_f64()?);
             triangles.push([v0, vcur, vnext]);
             colors.push(color);
+            faces.push(fi as u32);
         }
     }
     let edges = edges_geometry(&triangles, 1.0);
@@ -134,16 +141,13 @@ pub fn piece_mesh(piece: &crate::piece::PolyGeometry) -> Result<PieceMesh> {
         triangles,
         colors,
         edges,
+        faces,
     })
 }
 
 #[inline]
 fn to_f32(v: Vec3) -> Vec3 {
-    Vec3::new(
-        f64::from(v.x as f32),
-        f64::from(v.y as f32),
-        f64::from(v.z as f32),
-    )
+    Vec3::new(f64::from(v.x as f32), f64::from(v.y as f32), f64::from(v.z as f32))
 }
 
 /// The arrow overlay drawn on each grip.
@@ -171,11 +175,7 @@ fn arrow_outline() -> Vec<[f64; 2]> {
         let two_pi = std::f64::consts::TAU;
         let mut delta = (a1 - a0) % two_pi;
         if delta.abs() < f64::EPSILON {
-            delta = if (a1 - a0).abs() > f64::EPSILON {
-                two_pi
-            } else {
-                0.0
-            };
+            delta = if (a1 - a0).abs() > f64::EPSILON { two_pi } else { 0.0 };
         }
         if clockwise && delta > 0.0 {
             delta -= two_pi;
@@ -190,24 +190,12 @@ fn arrow_outline() -> Vec<[f64; 2]> {
     };
 
     let mut pts: Vec<[f64; 2]> = Vec::new();
-    arc(
-        1.0 + ARROW_WIDTH / 2.0,
-        tail_angle,
-        head_angle,
-        true,
-        &mut pts,
-    );
+    arc(1.0 + ARROW_WIDTH / 2.0, tail_angle, head_angle, true, &mut pts);
     let polar = |r: f64, t: f64| [r * t.cos(), r * t.sin()];
     pts.push(polar(1.0 + ARROW_HEAD_WIDTH / 2.0, head_angle));
     pts.push(polar(1.0, tip_angle));
     pts.push(polar(1.0 - ARROW_HEAD_WIDTH / 2.0, head_angle));
-    arc(
-        1.0 - ARROW_WIDTH / 2.0,
-        head_angle,
-        tail_angle,
-        false,
-        &mut pts,
-    );
+    arc(1.0 - ARROW_WIDTH / 2.0, head_angle, tail_angle, false, &mut pts);
     pts
 }
 
@@ -217,9 +205,7 @@ fn triangulate(poly: &[[f64; 2]]) -> Vec<[usize; 3]> {
     if n < 3 {
         return Vec::new();
     }
-    let area2 = |a: [f64; 2], b: [f64; 2], c: [f64; 2]| {
-        (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
-    };
+    let area2 = |a: [f64; 2], b: [f64; 2], c: [f64; 2]| (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0]);
     let signed: f64 = (0..n)
         .map(|i| {
             let a = poly[i];
@@ -324,12 +310,7 @@ pub fn arrow_instances(grips: &[Cut], global_rot: Quat) -> Result<Vec<ArrowInsta
         let mut h = String::new();
         cut.plane.normal.write_key(&mut h);
         let d = *counts.entry(h.clone()).or_insert(0);
-        let normal = cut
-            .plane
-            .normal
-            .to_f64()?
-            .normalize()
-            .apply_quat(&global_rot);
+        let normal = cut.plane.normal.to_f64()?.normalize().apply_quat(&global_rot);
         let rot = Quat::from_unit_vectors(&Vec3::new(0.0, 0.0, 1.0), &normal);
         // `arrow.position.z = 1.25 + 0.25 * d`, then rotated onto the axis.
         let position = Vec3::new(0.0, 0.0, 1.25 + 0.25 * d as f64).apply_quat(&rot);
@@ -396,24 +377,122 @@ impl PuzzleMeshes {
     }
 }
 
-/// Render a frame.
+/// Buffers a frame needs that do not change between frames.
+///
+/// A frame at 1280x1280 with 2x supersampling rasterizes into 26 MB of color
+/// and 26 MB of depth, and an interactive window throws both away sixty times
+/// a second unless something holds on to them. This does. It is passed as an
+/// argument instead of stored as a field so that the thing being drawn stays
+/// shareable: [`crate::batch::PuzzleBatch`] draws its geometry backend from
+/// several threads at once, each with a scratch of its own.
+///
+/// One scratch may be used for any size, camera or puzzle in turn. It grows to
+/// the largest frame asked of it and keeps that much.
+#[derive(Default)]
+pub struct FrameScratch {
+    target: RenderTarget,
+    palette: ArrowPalette,
+    work: DrawScratch,
+}
+
+impl FrameScratch {
+    pub fn new() -> FrameScratch {
+        FrameScratch::default()
+    }
+
+    /// Bytes currently held, for a caller that wants to account for them.
+    pub fn capacity(&self) -> usize {
+        self.target.capacity()
+            + self.work.capacity()
+            + (self.palette.plain.capacity() + self.palette.lit.capacity()) * 4
+    }
+}
+
+/// The two flat colors every arrow is drawn in, indexed per triangle.
+///
+/// They depend on nothing but the background and the arrow mesh, so they are
+/// built when one of those changes and not once a frame.
+#[derive(Default)]
+struct ArrowPalette {
+    background: [u8; 4],
+    plain: Vec<[u8; 4]>,
+    lit: Vec<[u8; 4]>,
+}
+
+impl ArrowPalette {
+    fn refresh(&mut self, background: [u8; 4], triangles: usize) {
+        if self.background == background && self.plain.len() == triangles {
+            return;
+        }
+        let lum =
+            0.299 * f64::from(background[0]) + 0.587 * f64::from(background[1]) + 0.114 * f64::from(background[2]);
+        let (plain, lit) = if lum > 128.0 {
+            (
+                shade(Color::from_hex(0x001E_293B), 0.45),
+                shade(Color::from_hex(0x0025_63EB), 0.9),
+            )
+        } else {
+            (
+                shade(Color::from_hex(0x00FF_FFFF), 0.3),
+                shade(Color::from_hex(0x00FF_FFCC), 0.9),
+            )
+        };
+        self.background = background;
+        self.plain.clear();
+        self.plain.resize(triangles, plain);
+        self.lit.clear();
+        self.lit.resize(triangles, lit);
+    }
+}
+
+/// Whether an arrow is drawn lit: the one the pointer is over, or one the
+/// caller has already marked.
+#[inline]
+fn lit_up(arrow: &ArrowInstance, index: usize, hovered: Option<usize>) -> bool {
+    arrow.highlighted || hovered == Some(index)
+}
+
+/// Render a frame into `out`, which is `width * height` RGBA8 pixels.
 ///
 /// `piece_quats` gives the world orientation of each piece (the animated value
 /// during a move, `global_rot * piece.rot` otherwise), and `scale` is the factor
-/// that fits the puzzle in a unit sphere.
-#[allow(clippy::too_many_arguments)]
-pub fn render_frame(
+/// that fits the puzzle in a unit sphere. `hovered` lights one arrow without
+/// the caller having to copy the instances to say so.
+///
+/// This is [`render_frame`] without its allocations: the rasterizer's buffers
+/// come from `scratch` and the finished pixels go straight where the caller
+/// wants them, which for a window is the surface it is about to show.
+///
+/// # Errors
+///
+/// If `out` is not exactly `width * height * 4` bytes.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "a frame is described by this many things, and grouping them would only move the list"
+)]
+pub fn render_frame_into(
+    scratch: &mut FrameScratch,
     meshes: &PuzzleMeshes,
     piece_quats: &[Quat],
     scale: f64,
     arrows: &[ArrowInstance],
+    hovered: Option<usize>,
     camera: &Camera,
     width: u32,
     height: u32,
     opts: &SceneOptions,
-) -> Framebuffer {
+    out: &mut [u8],
+) -> Result<()> {
+    let want = width as usize * height as usize * 4;
+    if out.len() != want {
+        return Err(crate::Error::Range(format!(
+            "a {width}x{height} frame is {want} bytes, got {}",
+            out.len()
+        )));
+    }
     let ss = opts.supersample.max(1);
-    let mut target = RenderTarget::new(width * ss, height * ss);
+    let target = &mut scratch.target;
+    target.resize(width * ss, height * ss);
     target.clear(opts.background);
     let vp = camera.view_projection();
 
@@ -458,39 +537,27 @@ pub fn render_frame(
     // color tables are built once and shared by every arrow, since `colors`
     // is indexed per triangle.
     let n_arrow_tris = meshes.arrow.triangles.len();
-    let bg_lum = 0.299 * f64::from(opts.background[0])
-        + 0.587 * f64::from(opts.background[1])
-        + 0.114 * f64::from(opts.background[2]);
-    let is_light_bg = bg_lum > 128.0;
-    let plain: Vec<[u8; 4]> = if is_light_bg {
-        vec![shade(Color::from_hex(0x1E293B), 0.45); n_arrow_tris]
-    } else {
-        vec![shade(Color::from_hex(0xFFFFFF), 0.3); n_arrow_tris]
-    };
-    let lit: Vec<[u8; 4]> = if is_light_bg {
-        vec![shade(Color::from_hex(0x2563EB), 0.9); n_arrow_tris]
-    } else {
-        vec![shade(Color::from_hex(0xFFFFCC), 0.9); n_arrow_tris]
-    };
+    scratch.palette.refresh(opts.background, n_arrow_tris);
+    let (plain, lit) = (&scratch.palette.plain, &scratch.palette.lit);
     if opts.draw_arrows {
-        for a in arrows {
-            if !a.highlighted {
+        for (i, a) in arrows.iter().enumerate() {
+            if !lit_up(a, i, hovered) {
                 calls.push(DrawCall {
                     model: a.model,
                     triangles: &meshes.arrow.triangles,
-                    colors: &plain,
+                    colors: plain,
                     cull: Cull::None,
                     blend: BlendMode::Over,
                     ..Default::default()
                 });
             }
         }
-        for a in arrows {
-            if a.highlighted {
+        for (i, a) in arrows.iter().enumerate() {
+            if lit_up(a, i, hovered) {
                 calls.push(DrawCall {
                     model: a.model,
                     triangles: &meshes.arrow.triangles,
-                    colors: &lit,
+                    colors: lit,
                     cull: Cull::None,
                     blend: BlendMode::Over,
                     ..Default::default()
@@ -499,11 +566,53 @@ pub fn render_frame(
         }
     }
 
-    draw(&mut target, &calls, &vp);
-    let fb = target.color;
+    draw_with(&mut scratch.work, target, &calls, &vp);
     if ss > 1 {
-        fb.downsample(ss)
+        target.color.downsample_into(ss, out);
     } else {
-        fb
+        out.copy_from_slice(target.color.as_bytes());
     }
+    Ok(())
+}
+
+/// Render a frame into a framebuffer of its own.
+///
+/// [`render_frame_into`] with the buffers allocated and thrown away around it:
+/// what a caller drawing one frame wants, and what a caller drawing a stream of
+/// them should not use.
+///
+/// No arrow is lit except one the caller has already marked `highlighted`.
+/// Lighting the arrow under the pointer is [`render_frame_into`]'s `hovered`,
+/// which is what [`crate::simulator::Simulator::render`] goes through.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "a frame is described by this many things, and grouping them would only move the list"
+)]
+pub fn render_frame(
+    meshes: &PuzzleMeshes,
+    piece_quats: &[Quat],
+    scale: f64,
+    arrows: &[ArrowInstance],
+    camera: &Camera,
+    width: u32,
+    height: u32,
+    opts: &SceneOptions,
+) -> Framebuffer {
+    let mut fb = Framebuffer::new(width, height);
+    let mut scratch = FrameScratch::new();
+    render_frame_into(
+        &mut scratch,
+        meshes,
+        piece_quats,
+        scale,
+        arrows,
+        None,
+        camera,
+        width,
+        height,
+        opts,
+        fb.as_bytes_mut(),
+    )
+    .expect("a framebuffer of the size asked for");
+    fb
 }

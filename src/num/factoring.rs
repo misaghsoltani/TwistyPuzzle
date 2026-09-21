@@ -8,8 +8,7 @@ use super::fraction::{Fraction, QQ};
 use super::int::{Int, Primes};
 use super::polynomial::{gcd as poly_gcd, Polynomial, Polynomials};
 use super::ring::{
-    extended_gcd, gcd as ring_gcd, power_mod, product, Elem, Euclidean, Integer, IntegerMod,
-    IntegersMod, RingOps, ZZ,
+    extended_gcd, gcd as ring_gcd, power_mod, product, Elem, Euclidean, Integer, IntegerMod, IntegersMod, RingOps, ZZ,
 };
 use crate::console_assert;
 use crate::error::{Error, Result};
@@ -31,7 +30,7 @@ thread_local! {
     /// Only the *order* in which
     /// Cantor-Zassenhaus discovers factors depends on those draws (the factor
     /// set does not), and `exact::extend` (the sole caller of `factor`) selects
-    /// its factor by root-counting rather than by position. A deterministic
+    /// its factor by root-counting instead of position. A deterministic
     /// stream therefore preserves observable behavior while making runs
     /// reproducible.
     static RNG_STATE: Cell<u64> = const { Cell::new(0x2545_F491_4F6C_DD1D) };
@@ -137,9 +136,7 @@ fn factor_squarefree(a: &PolyQ) -> Result<PolyZ> {
         n_gcd = n_gcd.gcd(&c.n);
         d_lcm = d_lcm.mul(&c.d).div(&d_lcm.gcd(&c.d));
     }
-    a_sf.map(ZZ, |c| {
-        Ok(Integer::new(c.n.mul(&d_lcm).div(&c.d).div(&n_gcd)))
-    })
+    a_sf.map(ZZ, |c| Ok(Integer::new(c.n.mul(&d_lcm).div(&c.d).div(&n_gcd))))
 }
 
 /// Split `A` into `A0..Ad`, where `Ai` is the product of the irreducible
@@ -191,10 +188,7 @@ fn factor_cantor_zassenhaus(a: &PolyFp, d: isize, p: &Int) -> Result<Vec<PolyFp>
         coeffs.push(IntegerMod::new(Int::from_i64(1), p.clone()));
         let t_poly = Polynomial::new(fp.clone(), coeffs);
         // A non-trivial factor of A with probability close to 1/2.
-        let exp = p
-            .pow(d as u32)
-            .sub(&Int::from_i64(1))
-            .div(&Int::from_i64(2));
+        let exp = p.pow(d as u32).sub(&Int::from_i64(1)).div(&Int::from_i64(2));
         let pm = power_mod(&fpx, &t_poly, &exp, a)?;
         let b1 = ring_gcd(&fpx, a, &Elem::sub(&pm, &one)?)?.monic()?;
         if 0 < b1.degree && b1.degree < a.degree {
@@ -243,13 +237,7 @@ fn divmod_mod(a: &PolyZ, b: &PolyZ, p: &Int) -> Result<(PolyZ, PolyZ)> {
 
 /// Lift a factorization `C = A_p * B_p (mod p)` to `mod p^e`
 /// (Cohen, Algorithms 3.5.5 and 3.5.6).
-fn hensel_lift_two(
-    c: &PolyZ,
-    a_p: &PolyFp,
-    b_p: &PolyFp,
-    p_in: &Int,
-    e: &Int,
-) -> Result<(PolyFp, PolyFp)> {
+fn hensel_lift_two(c: &PolyZ, a_p: &PolyFp, b_p: &PolyFp, p_in: &Int, e: &Int) -> Result<(PolyFp, PolyFp)> {
     let mut p = p_in.clone();
     let fpx = fp_x(&p);
     let (lc, u_p, v_p) = extended_gcd(&fpx, a_p, b_p)?;
@@ -262,9 +250,7 @@ fn hensel_lift_two(
     let one: PolyZ = Polynomial::new(ZZ, vec![ZZ.one()]);
 
     let mut q = p.clone();
-    let e_u32 = e
-        .to_i64()
-        .ok_or_else(|| Error::Other("exponent too large".into()))? as u32;
+    let e_u32 = e.to_i64().ok_or_else(|| Error::Other("exponent too large".into()))? as u32;
     let q_final = p_in.pow(e_u32);
 
     // Overshoots to p^(2^k) where 2^k >= e.
@@ -274,24 +260,16 @@ fn hensel_lift_two(
 
         let f = Elem::sub(c, &Elem::mul(&a, &b)?)?.sdiv(&pint)?;
         let (t, a0) = divmod_mod(&Elem::mul(&v, &f)?, &a, &p)?;
-        let b0 =
-            Elem::add(&Elem::mul(&u, &f)?, &Elem::mul(&b, &t)?)?.map(ZZ, |c| c.modulo(&pint))?;
-        let (a_new, b_new) = (
-            Elem::add(&a, &a0.smul(&pint)?)?,
-            Elem::add(&b, &b0.smul(&pint)?)?,
-        );
+        let b0 = Elem::add(&Elem::mul(&u, &f)?, &Elem::mul(&b, &t)?)?.map(ZZ, |c| c.modulo(&pint))?;
+        let (a_new, b_new) = (Elem::add(&a, &a0.smul(&pint)?)?, Elem::add(&b, &b0.smul(&pint)?)?);
         a = a_new;
         b = b_new;
 
-        let g =
-            Elem::sub(&Elem::sub(&one, &Elem::mul(&u, &a)?)?, &Elem::mul(&v, &b)?)?.sdiv(&pint)?;
+        let g = Elem::sub(&Elem::sub(&one, &Elem::mul(&u, &a)?)?, &Elem::mul(&v, &b)?)?.sdiv(&pint)?;
         let (s, v0) = divmod_mod(&Elem::mul(&v, &g)?, &a, &p)?;
         let u0 = Elem::add(&Elem::mul(&u, &g)?, &Elem::mul(&b, &s)?)?;
         let u0 = u0.map(ZZ, |c| c.modulo(&pint))?;
-        let (u_new, v_new) = (
-            Elem::add(&u, &u0.smul(&pint)?)?,
-            Elem::add(&v, &v0.smul(&pint)?)?,
-        );
+        let (u_new, v_new) = (Elem::add(&u, &u0.smul(&pint)?)?, Elem::add(&v, &v0.smul(&pint)?)?);
         u = u_new;
         v = v_new;
 
@@ -303,9 +281,7 @@ fn hensel_lift_two(
 /// Lift a full factorization mod `p` to mod `p^e`
 /// (von zur Gathen, Algorithm 15.17).
 fn hensel_lift(c: &PolyZ, c_factors: &[PolyFp], p: &Int, e: &Int) -> Result<Vec<PolyFp>> {
-    let e_u32 = e
-        .to_i64()
-        .ok_or_else(|| Error::Other("exponent too large".into()))? as u32;
+    let e_u32 = e.to_i64().ok_or_else(|| Error::Other("exponent too large".into()))? as u32;
     if c_factors.len() == 1 {
         return Ok(vec![to_fp(c, &p.pow(e_u32))?.monic()?]);
     }
@@ -351,13 +327,11 @@ fn combine_factors(u_in: &PolyZ, factors_modp: &[PolyFp], p: &Int) -> Result<Vec
                 // Move from F_p[x] to Z[x], using the fact that the
                 // coefficients must lie in [-p/2, p/2).
                 let mut v_z = v.map(ZZ, |c| {
-                    Ok(Integer::new(
-                        if two.mul(&c.n).cmp(p) == core::cmp::Ordering::Less {
-                            c.n.clone()
-                        } else {
-                            c.n.sub(p)
-                        },
-                    ))
+                    Ok(Integer::new(if two.mul(&c.n).cmp(p) == core::cmp::Ordering::Less {
+                        c.n.clone()
+                    } else {
+                        c.n.sub(p)
+                    }))
                 })?;
                 let r = match u.smul(&lc)?.modulo(&v_z) {
                     Ok(r) => r,
@@ -428,9 +402,7 @@ pub fn factor(a: &PolyQ) -> Result<Vec<PolyQ>> {
 
     // Choose exponent e.
     let b = factor_bound(&u)?;
-    let lc = u
-        .lc()
-        .ok_or_else(|| Error::Other("factor of zero polynomial".into()))?;
+    let lc = u.lc().ok_or_else(|| Error::Other("factor of zero polynomial".into()))?;
     let limit = Int::from_i64(2).mul(&lc.n).mul(&b);
     let mut e = Int::from_i64(1);
     let one = Int::from_i64(1);

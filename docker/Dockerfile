@@ -54,7 +54,7 @@ RUN --mount=type=cache,target=/usr/local/cargo/registry,id=cargo-registry-${TARG
 #
 # One abi3 wheel covers CPython 3.10 and every later version. The
 # free-threaded build cannot load a stable-ABI wheel, so it gets its own, one
-# per version -- the same split the release makes.
+# per version, matching the release split.
 # --------------------------------------------------------------------------
 FROM source AS wheels
 ARG TARGETPLATFORM
@@ -67,7 +67,7 @@ uv tool install 'maturin>=1.9,<2.0'
 maturin build --release --locked --out /wheels --interpreter /opt/python/cp310-cp310/bin/python
 
 # Free-threading is a separate ABI, not a later version of the stable one, so
-# there is one wheel per version rather than one wheel for all of them.
+# there is one wheel per version instead of one wheel for all of them.
 #
 # Every free-threaded interpreter in the image, not a hardcoded one: these
 # images carry 3.15t already, which no GitHub runner offers. Covering it is the
@@ -76,7 +76,7 @@ maturin build --release --locked --out /wheels --interpreter /opt/python/cp310-c
 #
 # Best-effort per interpreter. PyO3 gains support for each new free-threaded
 # version some time after CPython ships it, and a version it cannot build for
-# yet is news rather than a failure; the test stage reports any interpreter
+# yet is news instead of a failure. The test stage reports any interpreter
 # that ends up without a wheel.
 for ft in /opt/python/*t/bin/python; do
     [ -x "$ft" ] || continue
@@ -155,10 +155,10 @@ print("  base install is self-contained:", twistypuzzle.__version__)
 PROBE
 
     # Now the optional half. Where wheels exist for this interpreter the whole
-    # suite runs; where they do not, conftest.py drops the tests that need them
+    # suite runs. Where they do not, conftest.py drops the tests that need them
     # and the rest still runs. Compiling numpy from source inside every
     # container in the matrix would cost more than the coverage is worth.
-    uv pip install --python "$py" --quiet numpy gymnasium || echo "  --- numpy/gymnasium unavailable here; their tests will skip ---"
+    uv pip install --python "$py" --quiet numpy gymnasium || echo "  [note] numpy/gymnasium unavailable here, so their tests will skip"
 
     if ( cd /tmp && "$py" -m pytest -q /src/tests/python --import-mode=importlib ); then
         tested=$((tested + 1))

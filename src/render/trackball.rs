@@ -1,12 +1,10 @@
-//! Trackball camera control: drag to spin the puzzle, let go and it keeps
-//! spinning.
+//! Trackball camera control: drag to spin the puzzle, let go and it keeps spinning.
 //!
 //! Rotation only. Panning would let the puzzle leave the frame and zooming is
 //! the camera distance's job, so neither is offered. The damping is what makes
-//! a flick feel like a flick rather than a jump, and it is not decoration.
+//! a flick feel like a flick instead of a jump, and it is not decoration.
 //!
-//! Derived from the `TrackballControls` of the three.js examples (MIT
-//! license).
+//! Derived from the `TrackballControls` of the three.js examples (MIT license).
 
 use crate::math::{Quat, Vec3};
 
@@ -134,10 +132,7 @@ impl TrackballControls {
         if self.static_moving {
             self.move_prev = self.move_curr;
         } else {
-            let d = self
-                .move_curr
-                .sub(&self.move_prev)
-                .scale(self.dynamic_damping_factor);
+            let d = self.move_curr.sub(&self.move_prev).scale(self.dynamic_damping_factor);
             self.move_prev = self.move_prev.add(&d);
         }
 

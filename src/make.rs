@@ -50,7 +50,7 @@ pub fn make_cuts(cuts: &[ExactPlane], pieces: Vec<PolyGeometry>) -> Result<Vec<P
 
     // Insertion-ordered: the order these are visited sets the order cuts are
     // applied, which is geometry, not float noise. Keyed by the normal's memo
-    // form rather than its printed one.
+    // form instead of its printed one.
     let mut planes: IndexMap<String, Vec<ExactPlane>> = IndexMap::new();
     let mut key = String::new();
     for p in cuts {

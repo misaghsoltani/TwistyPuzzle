@@ -36,7 +36,7 @@ GENERIC_ID: Final[str] = f"{NAMESPACE}/Puzzle-v0"
 
 _NOT_ID_SAFE: Final[re.Pattern[str]] = re.compile(r"[^0-9A-Za-z]+")
 
-#: Given as import strings rather than as the classes themselves: that is what
+#: Given as import strings instead of as the classes themselves: that is what
 #: the registry's own signature asks for, and a string survives the trip into
 #: the subprocesses `AsyncVectorEnv` starts.
 ENTRY_POINT: Final[str] = "twistypuzzle.gym._env:TwistyPuzzleEnv"

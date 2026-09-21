@@ -4,7 +4,7 @@ build-backend = "maturin"
 
 [project]
 name = "twistypuzzle"
-version = "0.1.0"
+version = "0.1.1"
 description = "Twisty puzzle simulator"
 readme = "README.md"
 # No upper bound: the wheels are built against the stable ABI, so one of them
@@ -53,7 +53,7 @@ gym = ["twistypuzzle[gymnasium]"]
 # The desktop application. A separate distribution because an extra can only
 # pull in distributions, and because the interface is a native binary that most
 # users of the library have no use for.
-gui = ["twistypuzzle-gui==0.1.0"]
+gui = ["twistypuzzle-gui==0.1.1"]
 all = ["twistypuzzle[gui,gymnasium]"]
 test = ["pytest>=7", "gymnasium>=1.0", "numpy>=2.0"]
 
@@ -72,6 +72,7 @@ include = [
     { path = "build.rs", format = "sdist" },
     { path = "src/**/*.rs", format = "sdist" },
     { path = "tests/python/**/*.py", format = "sdist" },
+    { path = "tests/data/**", format = "sdist" },
     { path = "scripts/**/*.py", format = "sdist" },
     { path = "SEMANTICS.md", format = "sdist" },
     { path = "LICENSE*", format = "sdist" },

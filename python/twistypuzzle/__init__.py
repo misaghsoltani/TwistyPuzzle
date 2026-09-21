@@ -36,8 +36,40 @@ A state can be read back as the integer array.
     >>> p.solved_stickers == [i // 9 for i in range(54)]
     True
 
+Many states of one puzzle are turned together by :class:`PuzzleBatch`, in one
+call into Rust across every core. For a puzzle that does not jumble, a move is
+a fixed permutation of its slots, so a turn is a gather instead of a re-derivation
+of its geometry, and a frame is a lookup per pixel instead of a rasterization::
+
+    >>> b = tp.PuzzleBatch("Rubik's Cube (3x3x3)", 256, seed=0)
+    >>> b.reset(scramble=20)
+    >>> b.observations().shape
+    (256, 54)
+    >>> solved, applied = b.step([0] * 256)
+
+Batch queries return instances of :class:`Array`: contiguous memory buffers
+that ``numpy.asarray`` inspects without copying, and that ``tolist()`` reads
+directly without requiring NumPy, since the package has no external dependencies.
+
+:class:`Layout` numbers a puzzle's stickers face by face: for a cube, the way
+cubes are usually numbered, six faces in a fixed order each read as a grid.
+For anything else, the puzzle's own order, which is already canonical. Its moves
+are permutations of a small array, so a layout is a complete engine for
+its puzzle with no geometry in it at all::
+
+    >>> c = tp.Layout()
+    >>> c.goal_colors.tolist() == [i // 9 for i in range(54)]
+    True
+    >>> after = c.next_states(c.goal_colors, c.move_index("R"))
+
+Every array is as narrow as its puzzle allows: a 3x3x3 has 54 slots and 6
+colors, so its states, slot numbers and moves are all bytes, while a 9x9x9
+needs two bytes for a slot number and still one for a color. ``Array.typestr``
+says which, and the Gymnasium spaces are built from the same rule.
+
 An optional Gymnasium environment lives in :mod:`twistypuzzle.gym`, and an
-optional desktop interface installs with the ``gui`` extra.
+optional desktop interface installs with the ``gui`` extra, which brings a
+``twistypuzzle-gui`` command with it.
 """
 
 from __future__ import annotations
@@ -46,9 +78,11 @@ from itertools import starmap
 from typing import NamedTuple
 
 from ._native import (
+    Array,
     Fraction,
     Grip,
     Image,
+    Layout,
     Puzzle,
     PuzzleBatch,
     PuzzleError,
@@ -67,13 +101,24 @@ from ._native import (
     render_many,
     thread_count,
 )
+from ._types import (
+    ArrayInterface,
+    ArrayLike,
+    Atom,
+    BlendMode,
+    ExprLike,
+    Model,
+    PieceData,
+    PieceFace,
+    RecipeLike,
+    Rgba,
+    ShapeLike,
+)
 
-# Typing-only declarations describing the values `_native` accepts and returns.
-# A compiled module cannot define TypedDicts or type aliases, so they live in Python.
-from ._types import ArrayInterface, Atom, BlendMode, ExprLike, Model, PieceData, PieceFace, RecipeLike, Rgba, ShapeLike
-
-__all__ = [
+__all__: list[str] = [
+    "Array",
     "ArrayInterface",
+    "ArrayLike",
     "Atom",
     "BlendMode",
     "CatalogEntry",
@@ -81,6 +126,7 @@ __all__ = [
     "Fraction",
     "Grip",
     "Image",
+    "Layout",
     "Model",
     "PieceData",
     "PieceFace",

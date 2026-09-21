@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Measure how well the extension scales across Python threads.
 
-Every long operation hands the interpreter back while it works, so puzzle
-builds and renders should overlap on a GIL build as well as on a free-threaded
-one. This measures that rather than assuming it, and compares both against
-``build_many``/``render_many``, which parallelize inside Rust.
+Long-running operations release the Python GIL during execution, allowing
+puzzle construction and rendering to execute concurrently across threads on
+standard GIL builds as well as free-threaded builds. This script benchmarks
+threading throughput and compares thread-pool execution against
+``build_many`` and ``render_many``, which parallelize internally in native Rust.
 
     python scripts/bench_threads.py
     python scripts/bench_threads.py --puzzles 24 --threads 1 2 4 8
@@ -45,7 +46,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     # The heaviest puzzles, so the parallel region dominates the measurement
-    # rather than the thread-pool overhead around it.
+    # instead of the thread-pool overhead around it.
     entries = tp.catalog_entries()
     survey = tp.build_many([e.recipe for e in entries])
     ranked = sorted(zip(entries, survey, strict=True), key=lambda x: -x[1].piece_count)
@@ -69,10 +70,10 @@ def main(argv: list[str] | None = None) -> int:
     def analyze(p: tp.Puzzle) -> int:
         """Render, then walk the pixels in Python.
 
-        The render hands the interpreter back, so it overlaps on either build.
-        The loop after it does not: on a GIL build every thread queues for the
-        interpreter, and on a free-threaded one none of them do. This is the
-        difference free-threading actually makes to a caller of this library.
+        The render operation releases the GIL, enabling multi-threaded execution
+        on both standard and free-threaded CPython builds. In contrast, the subsequent
+        pixel processing loop executes purely in Python, contending on the GIL in
+        standard CPython while scaling concurrently under free-threading.
         """
         pixels = p.render(args.size, args.size).to_bytes()
         # Deliberately a plain Python loop over every pixel: that is the shape

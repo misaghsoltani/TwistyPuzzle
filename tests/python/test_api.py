@@ -1,6 +1,6 @@
 """The fine-grained API: recipes, grips, turns, and the typing stub.
 
-These cover the surface the extension offers rather than the geometry underneath it, which the Rust suite pins.
+These cover the surface the extension offers instead of the geometry underneath it, which the Rust suite pins.
 """
 
 from __future__ import annotations
@@ -25,7 +25,7 @@ CUBE: str = "?shell=C$1&cut=C$1/3"
 def _stub_members() -> dict[str, set[str]]:
     """Every class in `_native.pyi`, with the names declared on it.
 
-    Parsed rather than imported: a stub is not runnable, and the point is to
+    Parsed instead of imported: a stub is not runnable, and the point is to
     compare what it *claims* against what the compiled module has.
     """
     text = (Path(_native.__file__).parent / "_native.pyi").read_text(encoding="utf-8")
@@ -298,7 +298,7 @@ def test_render_and_piece_take_the_puzzle_exclusively() -> None:
     The numbers that come out do not depend on the interleaving, but the
     mutation is real (the shared interval narrows and the memo caches fill),
     so two threads doing it to one puzzle would be a data race. The borrow
-    check refuses it rather than letting it happen.
+    check refuses it instead of letting it happen.
     """
     for name in ("render", "piece", "grips", "stickers"):
         sig = inspect.signature(getattr(tp.Puzzle, name))

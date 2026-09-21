@@ -1,6 +1,6 @@
 [package]
 name = "twistypuzzle-gui"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 rust-version = "1.85"
 authors = ["Misagh Soltani <msoltani@email.sc.edu>"]
@@ -15,7 +15,7 @@ path = "src/main.rs"
 [dependencies]
 # `default-features = false` keeps the Python bindings out: this is a plain
 # binary and has no interpreter to link against.
-twistypuzzle = { path = "../..", version = "0.1.0", default-features = false }
+twistypuzzle = { path = "../..", version = "0.1.1", default-features = false }
 # The software renderer, not a GPU one: the simulator draws its own frames
 # without a GPU, and the window that shows them should not need one either.
 slint = { version = "1.17", default-features = false, features = [

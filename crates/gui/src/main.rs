@@ -8,27 +8,28 @@
 //! # How it is put together
 //!
 //! One thread owns the puzzle. Every Slint callback runs on the UI thread, so
-//! the lock around the state is never contended, acting as a lock rather than a
+//! the lock around the state is never contended, acting as a lock instead of a
 //! `RefCell` only because a puzzle built on a worker has to travel back through
 //! the event loop, which requires whatever it carries to be `Send`.
 //!
-//! Building a puzzle is the one slow thing here (the deeper catalog entries
-//! take seconds of exact arithmetic), so it happens on a worker thread and comes
-//! back through the event loop. The window stays responsive and says what it is
-//! doing rather than freezing, which is the difference between an application
-//! that feels broken and one that feels busy.
+//! Initial puzzle derivation is computationally intensive (complex catalog entries
+//! require exact algebraic plane and polyhedron cuts), so construction executes
+//! on a background worker thread and communicates completion via the UI event loop.
+//! This ensures the window remains responsive and displays construction progress.
 //!
-//! Frames are redrawn when something changes, not on a clock: a still puzzle
-//! costs nothing. While a turn animates or the pointer drags, a 60 Hz timer
-//! takes over.
+//! Frames are rendered on demand when state changes instead of on an unconstrained
+//! continuous loop, avoiding unnecessary computation when the puzzle is stationary.
+//! During turn animations or trackball drag operations, a 60 Hz timer drives updates.
 
+use core::fmt::Write as _;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use slint::winit_030::WinitWindowAccessor;
-use slint::{Image, ModelRc, SharedPixelBuffer, SharedString, Timer, TimerMode, VecModel};
-use twistypuzzle::catalog::{self, CatalogEntry};
+use slint::{Image, ModelRc, Rgba8Pixel, SharedPixelBuffer, SharedString, Timer, TimerMode, VecModel};
+use twistypuzzle::catalog;
+use twistypuzzle::render::scene::FrameScratch;
 use twistypuzzle::render::trackball::Pointer;
 use twistypuzzle::simulator::{Simulator, SymbolicView};
 
@@ -43,28 +44,31 @@ const FRAME: Duration = Duration::from_millis(16);
 /// The state, shared with the worker thread that builds a puzzle.
 ///
 /// Every interface callback runs on the one UI thread, so this is never
-/// contended, acting as a `Mutex` rather than a `RefCell` only because the built
+/// contended, acting as a `Mutex` instead of a `RefCell` only because the built
 /// puzzle has to come back from a worker through Slint's event loop, which
 /// requires whatever it carries to be `Send`.
 type Shared = Arc<Mutex<App>>;
 
-/// Take the lock, recovering from a poisoned one rather than compounding a
+/// Take the lock, recovering from a poisoned one instead of compounding a
 /// panic that already happened.
 fn lock(app: &Shared) -> MutexGuard<'_, App> {
-    app.lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+    app.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// Everything the interface owns, on the one thread that owns it.
 struct App {
     /// `None` only while the first puzzle is being built.
     sim: Option<Simulator>,
-    entries: Vec<CatalogEntry>,
+    entries: Vec<Entry>,
+    /// What the command line asked the first puzzle to start out as, taken
+    /// when that puzzle arrives. Later ones are the user's own choice and get
+    /// none of it.
+    start: Option<Options>,
     /// Physical pixels, so the frame is sharp on a scaled display.
     width: u32,
     height: u32,
     /// Bumped for every build request, so a build that finishes after the user
-    /// has moved on is discarded rather than replacing what they chose.
+    /// has moved on is discarded instead of replacing what they chose.
     generation: u64,
     log: Vec<String>,
     /// True between a press and the release that ends it.
@@ -72,13 +76,20 @@ struct App {
     /// Set when the puzzle has changed and the frame has not caught up.
     dirty: bool,
     last_tick: Instant,
-    /// The move names, so the log can say `A` rather than `layer 3`. Absent
+    /// The move names, so the log can say `A` instead of `layer 3`. Absent
     /// only if naming them failed.
     names: Option<Arc<SymbolicView>>,
-    /// Worked out when the puzzle changes rather than once a frame: reading a
+    /// Worked out when the puzzle changes instead of once a frame: reading a
     /// state walks every sticker, and on a puzzle that jumbles it walks them
     /// only to fail.
     solved: Solvedness,
+    /// The rasterizer's buffers, kept between frames instead of allocated and
+    /// zeroed sixty times a second.
+    scratch: FrameScratch,
+    /// Two pixel buffers, used in turn. See [`redraw`].
+    surfaces: [Option<SharedPixelBuffer<Rgba8Pixel>>; 2],
+    /// Which of the two the next frame goes into.
+    surface: usize,
 }
 
 /// What is known about whether the puzzle is solved.
@@ -92,10 +103,11 @@ enum Solvedness {
 }
 
 impl App {
-    fn new(entries: Vec<CatalogEntry>) -> App {
+    fn new(entries: Vec<Entry>, start: Options) -> App {
         App {
             sim: None,
             entries,
+            start: Some(start),
             width: 640,
             height: 640,
             generation: 0,
@@ -105,6 +117,9 @@ impl App {
             last_tick: Instant::now(),
             names: None,
             solved: Solvedness::No,
+            scratch: FrameScratch::new(),
+            surfaces: [None, None],
+            surface: 0,
         }
     }
 
@@ -126,14 +141,10 @@ impl App {
 
     /// The name the solved puzzle gave the grip now at `index`.
     fn grip_name(&self, index: usize) -> String {
-        let named = self
-            .names
-            .as_ref()
-            .zip(self.sim.as_ref())
-            .and_then(|(v, sim)| {
-                let cut = sim.grips().get(index)?;
-                v.actions.name_of_plane(&cut.plane).map(str::to_string)
-            });
+        let named = self.names.as_ref().zip(self.sim.as_ref()).and_then(|(v, sim)| {
+            let cut = sim.grips().get(index)?;
+            v.actions.name_of_plane(&cut.plane).map(str::to_string)
+        });
         named.unwrap_or_else(|| format!("layer {index}"))
     }
 
@@ -145,49 +156,270 @@ impl App {
     }
 }
 
+/// A puzzle the menu can offer: one of the cataloged ones, or the one the
+/// command line named.
+///
+/// Owned instead of a `CatalogEntry`, whose fields are `&'static str`,
+/// because a recipe given on the command line is not static and leaking it to
+/// pretend otherwise would be a poor trade for one string.
+#[derive(Clone)]
+struct Entry {
+    name: String,
+    kind: String,
+    recipe: String,
+}
+
+impl Entry {
+    /// The line the menu shows. Ten catalog entries are called "Unknown", so
+    /// those say what they are made of instead.
+    fn label(&self) -> String {
+        if self.name == "Unknown" {
+            format!("{} ({})", self.recipe, self.kind)
+        } else {
+            format!("{} - {}", self.name, self.kind)
+        }
+    }
+}
+
+/// Everything the command line can ask the window to start out as.
+#[derive(Clone)]
+struct Options {
+    /// A puzzle that is not in the catalog, added to the menu and opened.
+    custom: Option<Entry>,
+    /// A cataloged puzzle to open, by name.
+    named: Option<String>,
+    /// Random moves to make once it is built.
+    scramble: Option<u32>,
+    /// Seed for those moves, so a scramble can be repeated.
+    seed: Option<u64>,
+    /// A written sequence to apply once it is built, such as `"A B' C2"`.
+    moves: Option<String>,
+    /// Degrees to swing the camera sideways from head-on.
+    yaw: f64,
+    /// Degrees to raise it.
+    pitch: f64,
+    /// How far out the camera sits.
+    distance: f64,
+    arrows: bool,
+    edges: bool,
+    /// How far the Scramble button scrambles.
+    depth: f32,
+    animate: bool,
+    /// 0 dark, 1 light, 2 follow the system.
+    theme: i32,
+    /// Window size in logical pixels, or the window's own default.
+    size: Option<(u32, u32)>,
+}
+
+impl Default for Options {
+    fn default() -> Self {
+        Options {
+            custom: None,
+            named: None,
+            scramble: None,
+            seed: None,
+            moves: None,
+            // A little of each angle shows the puzzle as a solid instead of
+            // as a flat silhouette.
+            yaw: -28.0,
+            pitch: 20.0,
+            distance: 12.0,
+            arrows: true,
+            edges: true,
+            depth: 20.0,
+            animate: true,
+            theme: 2,
+            size: None,
+        }
+    }
+}
+
 /// What the command line asked for.
 enum Request {
-    /// Open the window, starting on this puzzle if one was named.
-    Open(Option<String>),
+    /// Open the window as these options describe.
+    Open(Box<Options>),
     /// Print something and stop.
     Print(String),
     /// Complain and stop.
     Fail(String),
 }
 
+const USAGE: &str = "\
+twistypuzzle-gui - a window for the twisty puzzle simulator
+
+Usage: twistypuzzle-gui [OPTIONS] [PUZZLE]
+
+Arguments:
+  [PUZZLE]              A cataloged puzzle's name, or a recipe query string
+                        such as '?shell=C$1&cut=C$1/3'. Anything beginning
+                        with '?' is read as a recipe and everything else as a
+                        name. Without one, the window opens on the 3x3x3.
+
+Options:
+  -p, --puzzle NAME     A cataloged puzzle, by name
+  -r, --recipe QUERY    A recipe query string, even if it looks like a name
+  -s, --scramble N      Make N random moves once the puzzle is built
+      --seed N          Seed those moves, so the scramble can be repeated
+  -m, --moves SEQUENCE  Apply a written sequence, such as \"A B' C2\"
+      --depth N         How far the Scramble button scrambles (default 20)
+      --no-animate      Scramble in one step instead of turn by turn
+      --yaw DEGREES     Swing the camera sideways from head-on (default -28)
+      --pitch DEGREES   Raise the camera above head-on (default 20)
+      --distance UNITS  How far the camera sits from the puzzle (default 12)
+      --no-arrows       Start with the turn arrows hidden
+      --no-edges        Start with the piece outlines hidden
+      --theme WHICH     'dark', 'light', or 'system' (the default)
+      --size WxH        Window size in logical pixels, such as 1280x800
+  -l, --list            Print every cataloged puzzle and stop
+      --polyhedra       Print every polyhedron code and stop
+  -V, --version         Print the version and stop
+  -h, --help            Print this and stop
+";
+
 /// Read the command line.
 ///
-/// Small enough to do by hand: three options, none of which take more than a
-/// word, and an argument parser would be a dependency for no benefit.
+/// Done by hand instead of with an argument parser: the whole grammar is the
+/// list above, and a dependency that pulls in a derive macro to read it would
+/// cost more to build than it saves to write.
+#[allow(clippy::too_many_lines)]
 fn parse_args(args: &[String]) -> Request {
-    let mut wanted: Option<String> = None;
+    let mut opts = Options::default();
+    let mut recipe: Option<String> = None;
+    let mut positional: Option<String> = None;
     let mut rest = args.iter();
+
+    /// Take an option's value, or say which option was left dangling.
+    macro_rules! value {
+        ($rest:expr, $flag:expr) => {
+            match $rest.next() {
+                Some(v) => v.clone(),
+                None => return Request::Fail(format!("{} needs a value", $flag)),
+            }
+        };
+    }
+
     while let Some(arg) = rest.next() {
         match arg.as_str() {
-            "-h" | "--help" => {
-                return Request::Print(
-                    "twistypuzzle-gui - a window for the twisty puzzle simulator\n\
-                     \n\
-                     Usage: twistypuzzle-gui [--puzzle NAME]\n\
-                     \n\
-                     Options:\n\
-                     \x20 -p, --puzzle NAME   Open this cataloged puzzle\n\
-                     \x20 -V, --version       Print the version\n\
-                     \x20 -h, --help          Print this\n"
-                        .into(),
-                );
-            },
+            "-h" | "--help" => return Request::Print(USAGE.into()),
             "-V" | "--version" => {
                 return Request::Print(format!("twistypuzzle-gui {}\n", env!("CARGO_PKG_VERSION")));
             },
-            "-p" | "--puzzle" => match rest.next() {
-                Some(name) => wanted = Some(name.clone()),
-                None => return Request::Fail("--puzzle needs the name of a puzzle".into()),
+            "-l" | "--list" => return Request::Print(catalog_listing()),
+            "--polyhedra" => return Request::Print(polyhedra_listing()),
+            "-p" | "--puzzle" => positional = Some(value!(rest, "--puzzle")),
+            "-r" | "--recipe" => recipe = Some(value!(rest, "--recipe")),
+            "-m" | "--moves" => opts.moves = Some(value!(rest, "--moves")),
+            "-s" | "--scramble" => {
+                let v = value!(rest, "--scramble");
+                match v.parse::<u32>() {
+                    Ok(n) => opts.scramble = Some(n),
+                    Err(_) => return Request::Fail(format!("--scramble wants a count, not {v:?}")),
+                }
             },
-            other => return Request::Fail(format!("unknown option {other:?}, try --help")),
+            "--seed" => {
+                let v = value!(rest, "--seed");
+                match v.parse::<u64>() {
+                    Ok(n) => opts.seed = Some(n),
+                    Err(_) => return Request::Fail(format!("--seed wants a number, not {v:?}")),
+                }
+            },
+            "--depth" => {
+                let v = value!(rest, "--depth");
+                match v.parse::<f32>() {
+                    Ok(n) if n >= 1.0 => opts.depth = n,
+                    _ => return Request::Fail(format!("--depth wants a count of 1 or more, not {v:?}")),
+                }
+            },
+            "--no-animate" => opts.animate = false,
+            "--no-arrows" => opts.arrows = false,
+            "--no-edges" => opts.edges = false,
+            "--yaw" | "--pitch" | "--distance" => {
+                let flag = arg.clone();
+                let v = value!(rest, flag);
+                let Ok(n) = v.parse::<f64>() else {
+                    return Request::Fail(format!("{flag} wants a number, not {v:?}"));
+                };
+                match flag.as_str() {
+                    "--yaw" => opts.yaw = n,
+                    "--pitch" => opts.pitch = n,
+                    _ if n > 0.0 => opts.distance = n,
+                    _ => return Request::Fail("--distance wants a positive number".into()),
+                }
+            },
+            "--theme" => {
+                let v = value!(rest, "--theme");
+                opts.theme = match v.as_str() {
+                    "dark" => 0,
+                    "light" => 1,
+                    "system" => 2,
+                    _ => return Request::Fail(format!("--theme wants dark, light or system, not {v:?}")),
+                };
+            },
+            "--size" => {
+                let v = value!(rest, "--size");
+                match parse_size(&v) {
+                    Some(wh) => opts.size = Some(wh),
+                    None => return Request::Fail(format!("--size wants WIDTHxHEIGHT, not {v:?}")),
+                }
+            },
+            other if other.starts_with('-') && other != "-" => {
+                return Request::Fail(format!("unknown option {other:?}, try --help"));
+            },
+            other => {
+                if positional.is_some() {
+                    return Request::Fail(format!("only one puzzle can be opened, and {other:?} is a second"));
+                }
+                positional = Some(other.to_string());
+            },
         }
     }
-    Request::Open(wanted)
+
+    // A positional argument beginning with `?` is a recipe. Nothing in the
+    // catalog starts with one, so this cannot shadow a name.
+    if let Some(text) = positional {
+        if text.starts_with('?') && recipe.is_none() {
+            recipe = Some(text);
+        } else {
+            opts.named = Some(text);
+        }
+    }
+    if let (Some(_), Some(name)) = (&recipe, &opts.named) {
+        return Request::Fail(format!("--recipe and the puzzle {name:?} name two different puzzles"));
+    }
+    if let Some(query) = recipe {
+        opts.custom = Some(Entry {
+            name: query.clone(),
+            kind: "from the command line".into(),
+            recipe: query,
+        });
+    }
+    Request::Open(Box::new(opts))
+}
+
+/// Read `WIDTHxHEIGHT`, in either case of `x`.
+fn parse_size(text: &str) -> Option<(u32, u32)> {
+    let (w, h) = text.split_once(['x', 'X'])?;
+    let w: u32 = w.trim().parse().ok()?;
+    let h: u32 = h.trim().parse().ok()?;
+    (w >= 320 && h >= 240 && w <= 16384 && h <= 16384).then_some((w, h))
+}
+
+/// Every cataloged puzzle, one per line, with the recipe that identifies it.
+fn catalog_listing() -> String {
+    let mut out = String::new();
+    for e in catalog::entries() {
+        let _ = writeln!(out, "{}\t{}\t{}\t{}", e.name, e.family, e.kind, e.recipe);
+    }
+    out
+}
+
+/// Every polyhedron a recipe can name, one per line.
+fn polyhedra_listing() -> String {
+    let mut out = String::new();
+    for (code, name) in twistypuzzle::polyhedra::shapes() {
+        let _ = writeln!(out, "{code}\t{name}");
+    }
+    out
 }
 
 #[cfg(target_os = "macos")]
@@ -206,68 +438,76 @@ mod macos_dock {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     #[cfg(target_os = "macos")]
     macos_dock::init_dock_icon();
 
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let wanted = match parse_args(&args) {
-        Request::Open(w) => w,
+    let opts = match parse_args(&args) {
+        Request::Open(o) => *o,
         Request::Print(text) => {
             print!("{text}");
             return Ok(());
         },
         Request::Fail(why) => {
             eprintln!("twistypuzzle-gui: {why}");
+            eprintln!("try 'twistypuzzle-gui --help'");
             std::process::exit(2);
         },
     };
 
-    let entries: Vec<CatalogEntry> = catalog::entries().collect();
-    if let Some(name) = &wanted {
-        if !entries.iter().any(|e| e.name.eq_ignore_ascii_case(name)) {
-            eprintln!("twistypuzzle-gui: no cataloged puzzle is called {name:?}");
-            std::process::exit(2);
-        }
-    }
-    let ui = MainWindow::new()?;
-
-    // Ten catalog entries are called "Unknown", so the menu shows what each
-    // one is made of rather than ten identical lines.
-    let names: Vec<SharedString> = entries
-        .iter()
-        .map(|e| {
-            if e.name == "Unknown" {
-                SharedString::from(format!("{} ({})", e.recipe, e.kind))
-            } else {
-                SharedString::from(format!("{} - {}", e.name, e.kind))
-            }
+    // A puzzle named on the command line joins the menu, so it can be chosen
+    // again after the user has looked at another one.
+    let mut entries: Vec<Entry> = catalog::entries()
+        .map(|e| Entry {
+            name: e.name.to_string(),
+            kind: e.kind.to_string(),
+            recipe: e.recipe.to_string(),
         })
         .collect();
+    let mut start = entries
+        .iter()
+        .position(|e| e.name == "Rubik's Cube (3x3x3)")
+        .unwrap_or(0);
+    if let Some(custom) = opts.custom.clone() {
+        entries.push(custom);
+        start = entries.len() - 1;
+    } else if let Some(name) = &opts.named {
+        let Some(i) = entries.iter().position(|e| e.name.eq_ignore_ascii_case(name)) else {
+            eprintln!("twistypuzzle-gui: no cataloged puzzle is called {name:?}");
+            eprintln!("try 'twistypuzzle-gui --list'");
+            std::process::exit(2);
+        };
+        start = i;
+    }
+
+    let ui = MainWindow::new()?;
+    if let Some((w, h)) = opts.size {
+        ui.window().set_size(slint::LogicalSize::new(w as f32, h as f32));
+    }
+
+    let names: Vec<SharedString> = entries.iter().map(|e| SharedString::from(e.label())).collect();
     let model: Rc<VecModel<SharedString>> = Rc::new(VecModel::from(names));
     ui.set_puzzle_names(ModelRc::from(model.clone()));
 
-    let start = wanted
-        .as_deref()
-        .and_then(|name| {
-            entries
-                .iter()
-                .position(|e| e.name.eq_ignore_ascii_case(name))
-        })
-        .or_else(|| {
-            entries
-                .iter()
-                .position(|e| e.name == "Rubik's Cube (3x3x3)")
-        })
-        .unwrap_or(0);
     ui.set_puzzle_index(i32::try_from(start).unwrap_or(0));
+    ui.set_show_arrows(opts.arrows);
+    ui.set_show_edges(opts.edges);
+    ui.set_scramble_depth(opts.depth);
+    ui.set_animate_scramble(opts.animate);
+    let system_dark = detect_system_is_dark(&ui);
+    ui.invoke_set_system_theme(system_dark);
+    if opts.theme != 2 {
+        ui.invoke_apply_theme(opts.theme);
+    }
     ui.set_hint(
         "Drag to turn the view, click an arrow to turn a layer, scroll to zoom.\n\
          Space scrambles, R resets, U undoes."
             .into(),
     );
 
-    let app: Shared = Arc::new(Mutex::new(App::new(entries)));
+    let app: Shared = Arc::new(Mutex::new(App::new(entries, opts)));
 
     wire_callbacks(&ui, &app);
     begin_build(&ui, &app, start);
@@ -492,9 +732,10 @@ fn wire_callbacks(ui: &MainWindow, app: &Shared) {
     {
         let weak = ui.as_weak();
         ui.window().on_winit_window_event(move |_, event| {
-            if let slint::winit_030::winit::event::WindowEvent::ThemeChanged(_) = event {
+            if let slint::winit_030::winit::event::WindowEvent::ThemeChanged(theme) = event {
                 if let Some(ui) = weak.upgrade() {
-                    ui.invoke_theme_changed();
+                    let is_dark = matches!(theme, slint::winit_030::winit::window::Theme::Dark);
+                    ui.invoke_set_system_theme(is_dark);
                 }
             }
             slint::winit_030::EventResult::Propagate
@@ -574,11 +815,7 @@ fn wire_callbacks(ui: &MainWindow, app: &Shared) {
             let Some(ui) = weak.upgrade() else { return };
             let mut state = lock(&app);
             state.dragging = false;
-            let turned = state
-                .sim
-                .as_mut()
-                .map(|sim| sim.pointer_up(pointer(x, y)))
-                .transpose();
+            let turned = state.sim.as_mut().map(|sim| sim.pointer_up(pointer(x, y))).transpose();
             match turned {
                 Ok(Some(Some((grip, dir)))) => {
                     let name = state.grip_name(grip);
@@ -590,10 +827,7 @@ fn wire_callbacks(ui: &MainWindow, app: &Shared) {
                 Ok(_) => {},
                 Err(e) => state.note(format!("turn failed: {e}")),
             }
-            let is_hovered = state
-                .sim
-                .as_ref()
-                .is_some_and(|s| s.hovered_arrow().is_some());
+            let is_hovered = state.sim.as_ref().is_some_and(|s| s.hovered_arrow().is_some());
             ui.set_arrow_hovered(is_hovered);
             state.dirty = true;
             drop(state);
@@ -628,21 +862,59 @@ fn pointer(x: f32, y: f32) -> Pointer {
     }
 }
 
+/// Make whatever moves the command line asked for, on a puzzle that has just
+/// been built.
+///
+/// A sequence is applied before a scramble, so moves names a position and
+/// scramble walks away from it, which is the order the two read in.
+fn opening_moves(state: &mut App, opts: &Options) {
+    let Some(sim) = state.sim.as_mut() else {
+        return;
+    };
+    if let Some(text) = &opts.moves {
+        match sim.symbolic().and_then(|view| {
+            let moves = twistypuzzle::symbolic::parse_moves(&view.actions, text)?;
+            let mut made = 0usize;
+            for m in moves {
+                for _ in 0..m.repeat {
+                    if sim.apply_action(m.action)? {
+                        made += 1;
+                    }
+                }
+            }
+            Ok(made)
+        }) {
+            Ok(made) => state.note(format!("applied {made} moves")),
+            Err(e) => state.note(format!("could not apply the moves: {e}")),
+        }
+    }
+    let Some(sim) = state.sim.as_mut() else {
+        return;
+    };
+    if let Some(depth) = opts.scramble.filter(|&d| d > 0) {
+        if let Some(seed) = opts.seed {
+            sim.seed(seed);
+        }
+        sim.scramble(depth);
+        match sim.settle() {
+            Ok(()) => state.note(format!("scrambled {depth}")),
+            Err(e) => state.note(format!("scramble failed: {e}")),
+        }
+    }
+}
+
 /// Start building the puzzle at `index`, off the UI thread.
 fn begin_build(ui: &MainWindow, app: &Shared, index: usize) {
     let (recipe, label, generation) = {
         let mut state = lock(app);
-        let Some(entry) = state.entries.get(index).copied() else {
+        let Some(entry) = state.entries.get(index) else {
             return;
         };
+        let (recipe, label) = (entry.recipe.clone(), entry.name.clone());
         state.generation += 1;
         state.sim = None;
         state.log.clear();
-        (
-            entry.recipe.to_string(),
-            entry.name.to_string(),
-            state.generation,
-        )
+        (recipe, label, state.generation)
     };
     ui.set_busy(true);
     ui.set_status(format!("Building {label}…").into());
@@ -661,9 +933,18 @@ fn begin_build(ui: &MainWindow, app: &Shared, index: usize) {
             }
             match built {
                 Ok(mut sim) => {
-                    // A little of each angle shows the puzzle as a solid rather
-                    // than as a flat silhouette.
-                    sim.look_from(-28.0, 20.0, 12.0);
+                    // The command line only ever describes the first puzzle,
+                    // so this is taken instead of read: whatever the user
+                    // picks next is theirs, not the shell's.
+                    let start = state.start.take();
+                    let view = start.as_ref();
+                    // A little of each angle shows the puzzle as a solid instead
+                    // of as a flat silhouette.
+                    sim.look_from(
+                        view.map_or(-28.0, |o| o.yaw),
+                        view.map_or(20.0, |o| o.pitch),
+                        view.map_or(12.0, |o| o.distance),
+                    );
                     sim.options_mut().background = if ui.get_is_dark() {
                         [27, 30, 36, 255]
                     } else {
@@ -671,11 +952,14 @@ fn begin_build(ui: &MainWindow, app: &Shared, index: usize) {
                     };
                     sim.options_mut().draw_arrows = ui.get_show_arrows();
                     sim.options_mut().draw_edges = ui.get_show_edges();
-                    // Named while the puzzle is still solved, which is the only
-                    // time naming it is cheap.
+                    // Initialized while the puzzle is in its solved configuration
+                    // to minimize permutation analysis overhead.
                     state.names = sim.symbolic().ok();
                     state.solved = Solvedness::No;
                     state.sim = Some(sim);
+                    if let Some(o) = start {
+                        opening_moves(&mut state, &o);
+                    }
                     state.settle_solved();
                     state.dirty = true;
                     state.note(format!("built {label}"));
@@ -701,8 +985,7 @@ fn refresh(ui: &MainWindow, app: &Shared) {
             sim.grip_count(),
             sim.moves_made(),
             sim.history_len(),
-            sim.hovered_arrow()
-                .map(|h| (h / 2, if h % 2 == 0 { -1 } else { 1 })),
+            sim.hovered_arrow().map(|h| (h / 2, if h % 2 == 0 { -1 } else { 1 })),
         ),
         None => (0, 0, 0, 0, None),
     };
@@ -723,20 +1006,135 @@ fn refresh(ui: &MainWindow, app: &Shared) {
 }
 
 /// Draw one frame into the window.
+///
+/// Eliminates per-frame heap allocations. The rasterizer's color and depth
+/// scratch buffers reside in `App::scratch`: rendering at 1280x1280 with 2x
+/// supersampling rasterizes 2560x2560 pixels (~50 MB), which would incur
+/// substantial allocation overhead if reallocated at 60 Hz. The rasterizer writes
+/// directly to the shared pixel buffer displayed by the window system, eliminating
+/// redundant blit passes.
+///
+/// Double-buffering ping-pongs between two shared surfaces. Because the window
+/// system retains a reference to the active frame, drawing into the active buffer
+/// would trigger copy-on-write reallocation. Alternating buffers guarantees that
+/// the target buffer is unreferenced and reused in place.
 fn redraw(ui: &MainWindow, app: &Shared) {
     let mut state = lock(app);
     let (width, height) = (state.width, state.height);
-    let Some(sim) = state.sim.as_mut() else {
+    if state.sim.is_none() {
         ui.set_frame(Image::default());
         return;
+    }
+    let slot = state.surface;
+    state.surface ^= 1;
+    let mut buffer = match state.surfaces[slot].take() {
+        Some(b) if b.width() == width && b.height() == height => b,
+        _ => SharedPixelBuffer::<Rgba8Pixel>::new(width, height),
     };
-    let frame = sim.render(width, height);
-    let mut buffer = SharedPixelBuffer::<slint::Rgba8Pixel>::new(width, height);
-    buffer.make_mut_bytes().copy_from_slice(frame.as_bytes());
+    let App {
+        sim: Some(sim),
+        scratch,
+        ..
+    } = &mut *state
+    else {
+        return;
+    };
+    let drawn = sim.render_into(width, height, scratch, buffer.make_mut_bytes());
+    state.surfaces[slot] = Some(buffer.clone());
     let solved = state.solved == Solvedness::Yes;
     drop(state);
-    ui.set_frame(Image::from_rgba8(buffer));
+    if drawn.is_ok() {
+        ui.set_frame(Image::from_rgba8(buffer));
+    }
     ui.set_solved(solved);
+}
+
+#[cfg(target_os = "macos")]
+fn platform_system_is_dark() -> Option<bool> {
+    let out = std::process::Command::new("defaults")
+        .args(["read", "-g", "AppleInterfaceStyle"])
+        .output()
+        .ok()?;
+    Some(out.status.success() && String::from_utf8_lossy(&out.stdout).trim() == "Dark")
+}
+
+#[cfg(target_os = "windows")]
+fn platform_system_is_dark() -> Option<bool> {
+    let out = std::process::Command::new("reg")
+        .args([
+            "query",
+            r"HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+            "/v",
+            "AppsUseLightTheme",
+        ])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    for line in text.lines() {
+        if line.contains("AppsUseLightTheme") {
+            if line.contains("0x0") {
+                return Some(true);
+            }
+            if line.contains("0x1") {
+                return Some(false);
+            }
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn platform_system_is_dark() -> Option<bool> {
+    if let Ok(out) = std::process::Command::new("gsettings")
+        .args(["get", "org.gnome.desktop.interface", "color-scheme"])
+        .output()
+    {
+        if out.status.success() {
+            let s = String::from_utf8_lossy(&out.stdout);
+            if s.contains("prefer-dark") {
+                return Some(true);
+            }
+            if s.contains("prefer-light") || s.contains("default") {
+                return Some(false);
+            }
+        }
+    }
+    if let Ok(out) = std::process::Command::new("gsettings")
+        .args(["get", "org.gnome.desktop.interface", "gtk-theme"])
+        .output()
+    {
+        if out.status.success() {
+            let s = String::from_utf8_lossy(&out.stdout).to_lowercase();
+            if s.contains("dark") {
+                return Some(true);
+            }
+            if s.contains("light") {
+                return Some(false);
+            }
+        }
+    }
+    None
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+fn platform_system_is_dark() -> Option<bool> {
+    None
+}
+
+/// Detect whether the host operating system is configured for dark mode.
+fn detect_system_is_dark(ui: &MainWindow) -> bool {
+    let mut theme = None;
+    ui.window().with_winit_window(|w| {
+        theme = w.theme();
+    });
+    match theme {
+        Some(slint::winit_030::winit::window::Theme::Dark) => true,
+        Some(slint::winit_030::winit::window::Theme::Light) => false,
+        None => platform_system_is_dark().unwrap_or(false),
+    }
 }
 
 #[cfg(test)]
@@ -756,16 +1154,54 @@ mod tests {
         }
     }
 
+    /// Frames go into two surfaces in turn, and into the rasterizer's kept
+    /// buffers. Both are reused, so either could serve a stale picture: turn
+    /// the puzzle and redraw more times than there are surfaces, and require
+    /// every frame to be the one the puzzle would draw fresh.
+    fn frames_are_never_stale(ui: &MainWindow, app: &Shared) {
+        let mut seen: Vec<*const u8> = Vec::new();
+        for turn in 0..5 {
+            {
+                let mut state = lock(app);
+                let sim = state.sim.as_mut().unwrap();
+                sim.begin_move(turn % sim.grip_count(), 1).expect("turn");
+                sim.settle().expect("settle");
+            }
+            redraw(ui, app);
+            let state = lock(app);
+            let (width, height) = (state.width, state.height);
+            let fresh = state.sim.as_ref().unwrap().render(width, height);
+            let drawn = state.surfaces[state.surface ^ 1]
+                .as_ref()
+                .expect("the surface just drawn into");
+            assert_eq!(
+                drawn.as_bytes(),
+                fresh.as_bytes(),
+                "frame {turn} must be the picture of the puzzle as it now stands"
+            );
+            seen.push(drawn.as_bytes().as_ptr());
+        }
+        // Two surfaces, alternating: the fifth frame is in the first one's
+        // memory, which is the point of keeping them.
+        assert_eq!(seen[0], seen[2], "surfaces must be reused, not reallocated");
+        assert_eq!(seen[1], seen[3]);
+        assert_ne!(seen[0], seen[1], "consecutive frames must not share memory");
+    }
+
     #[test]
     fn gui_hover_and_pointer_callbacks() {
         let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
-        let _ = slint::platform::set_platform(Box::new(Headless {
-            window: window.clone(),
-        }));
+        let _ = slint::platform::set_platform(Box::new(Headless { window: window.clone() }));
 
-        let entries = catalog::entries().collect::<Vec<_>>();
+        let entries: Vec<Entry> = catalog::entries()
+            .map(|e| Entry {
+                name: e.name.to_string(),
+                kind: e.kind.to_string(),
+                recipe: e.recipe.to_string(),
+            })
+            .collect();
         let ui = MainWindow::new().expect("create window");
-        let app: Shared = Arc::new(Mutex::new(App::new(entries)));
+        let app: Shared = Arc::new(Mutex::new(App::new(entries, Options::default())));
 
         wire_callbacks(&ui, &app);
 
@@ -798,10 +1234,7 @@ mod tests {
 
         // Move away to empty space
         ui.invoke_pointer_moved(0.0, 0.0);
-        assert!(
-            !ui.get_arrow_hovered(),
-            "moving away must clear arrow_hovered"
-        );
+        assert!(!ui.get_arrow_hovered(), "moving away must clear arrow_hovered");
         assert!(
             ui.get_status().contains("0 moves made"),
             "status must restore when unhovered: {}",
@@ -814,19 +1247,13 @@ mod tests {
 
         // Pointer exits stage
         ui.invoke_pointer_exited();
-        assert!(
-            !ui.get_arrow_hovered(),
-            "pointer exit must clear arrow_hovered"
-        );
+        assert!(!ui.get_arrow_hovered(), "pointer exit must clear arrow_hovered");
 
         // Toggle arrows off
         ui.set_show_arrows(false);
         ui.invoke_options_changed();
         ui.invoke_pointer_moved(0.050, 0.775);
-        assert!(
-            !ui.get_arrow_hovered(),
-            "hidden arrows must not be hoverable"
-        );
+        assert!(!ui.get_arrow_hovered(), "hidden arrows must not be hoverable");
 
         // Window controls invocation
         assert!(!ui.get_is_maximized());
@@ -838,10 +1265,7 @@ mod tests {
         ui.invoke_drag_window();
 
         // Animate scramble switch tests
-        assert!(
-            ui.get_animate_scramble(),
-            "animate scramble must default to true"
-        );
+        assert!(ui.get_animate_scramble(), "animate scramble must default to true");
         // Test non-animated scramble (instant settle)
         ui.set_animate_scramble(false);
         ui.invoke_animate_scramble_changed();
@@ -862,5 +1286,49 @@ mod tests {
         assert_eq!(lock(&app).sim.as_ref().unwrap().history_len(), 0);
         assert!(lock(&app).sim.as_mut().unwrap().is_solved().unwrap());
         assert!(!lock(&app).sim.as_ref().unwrap().is_animating());
+
+        frames_are_never_stale(&ui, &app);
+    }
+
+    #[test]
+    fn gui_theme_switching_and_system_mode() {
+        let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
+        let _ = slint::platform::set_platform(Box::new(Headless { window }));
+
+        let ui = MainWindow::new().expect("create window");
+        assert_eq!(ui.get_theme_mode(), 2);
+
+        // System theme defaults to light in our tests
+        ui.invoke_set_system_theme(false);
+        assert!(!ui.get_is_dark());
+
+        // When system is dark, system mode evaluates to dark
+        ui.invoke_set_system_theme(true);
+        assert!(ui.get_is_dark());
+
+        // When system is light again, system mode evaluates to light
+        ui.invoke_set_system_theme(false);
+        assert!(!ui.get_is_dark());
+
+        // Explicit dark mode (0) stays dark regardless of system theme
+        ui.invoke_apply_theme(0);
+        assert_eq!(ui.get_theme_mode(), 0);
+        assert!(ui.get_is_dark());
+        ui.invoke_set_system_theme(false);
+        assert!(ui.get_is_dark());
+
+        // Explicit light mode (1) stays light regardless of system theme
+        ui.invoke_apply_theme(1);
+        assert_eq!(ui.get_theme_mode(), 1);
+        assert!(!ui.get_is_dark());
+        ui.invoke_set_system_theme(true);
+        assert!(!ui.get_is_dark());
+
+        // Switching back to system mode (2) restores the system theme
+        ui.invoke_apply_theme(2);
+        assert_eq!(ui.get_theme_mode(), 2);
+        assert!(ui.get_is_dark());
+        ui.invoke_set_system_theme(false);
+        assert!(!ui.get_is_dark());
     }
 }

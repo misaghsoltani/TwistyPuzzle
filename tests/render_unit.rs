@@ -31,53 +31,20 @@ fn blit_clips_on_both_surfaces() {
     let src = Framebuffer::filled(4, 4, [10, 20, 30, 255]);
     let mut dst = Framebuffer::filled(8, 8, [0, 0, 0, 255]);
     // Fully inside.
-    dst.blit(
-        &src,
-        Rect {
-            x: 0,
-            y: 0,
-            w: 4,
-            h: 4,
-        },
-        2,
-        2,
-        BlendMode::Copy,
-    );
+    dst.blit(&src, Rect { x: 0, y: 0, w: 4, h: 4 }, 2, 2, BlendMode::Copy);
     assert_eq!(dst.pixel(2, 2), [10, 20, 30, 255]);
     assert_eq!(dst.pixel(5, 5), [10, 20, 30, 255]);
     assert_eq!(dst.pixel(1, 1), [0, 0, 0, 255]);
     assert_eq!(dst.pixel(6, 6), [0, 0, 0, 255]);
     // Straddling the top-left corner: only the visible part lands.
     let mut d2 = Framebuffer::filled(8, 8, [0, 0, 0, 255]);
-    d2.blit(
-        &src,
-        Rect {
-            x: 0,
-            y: 0,
-            w: 4,
-            h: 4,
-        },
-        -2,
-        -2,
-        BlendMode::Copy,
-    );
+    d2.blit(&src, Rect { x: 0, y: 0, w: 4, h: 4 }, -2, -2, BlendMode::Copy);
     assert_eq!(d2.pixel(0, 0), [10, 20, 30, 255]);
     assert_eq!(d2.pixel(1, 1), [10, 20, 30, 255]);
     assert_eq!(d2.pixel(2, 2), [0, 0, 0, 255]);
     // Entirely outside is a no-op.
     let before = d2.as_bytes().to_vec();
-    d2.blit(
-        &src,
-        Rect {
-            x: 0,
-            y: 0,
-            w: 4,
-            h: 4,
-        },
-        100,
-        100,
-        BlendMode::Copy,
-    );
+    d2.blit(&src, Rect { x: 0, y: 0, w: 4, h: 4 }, 100, 100, BlendMode::Copy);
     assert_eq!(d2.as_bytes(), &before[..]);
 }
 
@@ -85,18 +52,7 @@ fn blit_clips_on_both_surfaces() {
 fn over_blend_matches_the_classic_formula() {
     let src = Framebuffer::filled(2, 2, [255, 0, 0, 128]);
     let mut dst = Framebuffer::filled(2, 2, [0, 0, 255, 255]);
-    dst.blit(
-        &src,
-        Rect {
-            x: 0,
-            y: 0,
-            w: 2,
-            h: 2,
-        },
-        0,
-        0,
-        BlendMode::Over,
-    );
+    dst.blit(&src, Rect { x: 0, y: 0, w: 2, h: 2 }, 0, 0, BlendMode::Over);
     let p = dst.pixel(0, 0);
     // 255*128/255 + 0*127/255 = 128 (rounded)
     assert!((i32::from(p[0]) - 128).abs() <= 1, "red {}", p[0]);
@@ -171,11 +127,7 @@ fn depth_test_keeps_the_nearer_triangle() {
                 Vec3::new(-1.0, -1.0, z),
                 Vec3::new(1.0, -1.0, z),
             ],
-            [
-                Vec3::new(-1.0, 1.0, z),
-                Vec3::new(1.0, -1.0, z),
-                Vec3::new(1.0, 1.0, z),
-            ],
+            [Vec3::new(-1.0, 1.0, z), Vec3::new(1.0, -1.0, z), Vec3::new(1.0, 1.0, z)],
         ]
     };
     let far = quad(0.9);
@@ -197,11 +149,7 @@ fn depth_test_keeps_the_nearer_triangle() {
         },
     ];
     draw(&mut target, &calls, &Mat4::IDENTITY);
-    assert_eq!(
-        target.color.pixel(4, 4),
-        [0, 255, 0, 255],
-        "nearer triangle should win"
-    );
+    assert_eq!(target.color.pixel(4, 4), [0, 255, 0, 255], "nearer triangle should win");
 
     // Drawn in the opposite order, the result must be the same.
     let mut t2 = RenderTarget::new(8, 8);
@@ -254,10 +202,7 @@ fn arrow_mesh_is_a_closed_solid() {
         .map(area)
         .sum();
     assert!(front > 0.5, "front cap area {front} is implausibly small");
-    assert!(
-        (front - back).abs() < 1e-9,
-        "caps disagree: front {front}, back {back}"
-    );
+    assert!((front - back).abs() < 1e-9, "caps disagree: front {front}, back {back}");
 
     // Every edge of a closed solid is shared by exactly two triangles.
     let key = |v: Vec3| -> Key {
@@ -294,28 +239,14 @@ fn every_printable_ascii_has_a_glyph() {
     for code in 0x20u8..=0x7E {
         let ch = code as char;
         let mut fb = Framebuffer::filled(32, 32, [0, 0, 0, 255]);
-        fb.draw_text(
-            2,
-            2,
-            &ch.to_string(),
-            [255, 255, 255, 255],
-            2,
-            BlendMode::Copy,
-        );
-        let ink = fb
-            .as_bytes()
-            .chunks_exact(4)
-            .filter(|p| p[0] == 255)
-            .count();
+        fb.draw_text(2, 2, &ch.to_string(), [255, 255, 255, 255], 2, BlendMode::Copy);
+        let ink = fb.as_bytes().chunks_exact(4).filter(|p| p[0] == 255).count();
         if ch == ' ' {
             assert_eq!(ink, 0, "space should draw nothing");
         } else {
             assert!(ink > 0, "no ink for {ch:?} (U+{code:04X})");
         }
-        assert!(
-            font::text_width(&ch.to_string(), 1) > 0,
-            "zero advance for {ch:?}"
-        );
+        assert!(font::text_width(&ch.to_string(), 1) > 0, "zero advance for {ch:?}");
     }
 }
 
@@ -328,8 +259,7 @@ fn text_width_matches_what_is_drawn() {
     fb.draw_text(10, 10, text, [255, 255, 255, 255], scale, BlendMode::Copy);
 
     let stride = fb.stride();
-    let column_has_ink =
-        |x: usize| (0..fb.height() as usize).any(|y| fb.as_bytes()[y * stride + x * 4] == 255);
+    let column_has_ink = |x: usize| (0..fb.height() as usize).any(|y| fb.as_bytes()[y * stride + x * 4] == 255);
     // Ink starts at the left edge of the first glyph and the last inked column
     // lies inside the reported width. Tracking is not counted after the final
     // glyph, so the right edge is exact for a string ending in an inked column.
@@ -338,10 +268,7 @@ fn text_width_matches_what_is_drawn() {
         column_has_ink(10 + w as usize - 1),
         "reported width overshoots the last inked column"
     );
-    assert!(
-        !column_has_ink(10 + w as usize),
-        "ink past the reported width"
-    );
+    assert!(!column_has_ink(10 + w as usize), "ink past the reported width");
 }
 
 #[test]
@@ -366,14 +293,7 @@ fn descenders_fall_below_the_baseline() {
     let base = font::baseline(scale) as usize;
     for ch in ['g', 'j', 'p', 'q', 'y'] {
         let mut fb = Framebuffer::filled(32, 40, [0, 0, 0, 255]);
-        fb.draw_text(
-            2,
-            0,
-            &ch.to_string(),
-            [255, 255, 255, 255],
-            scale,
-            BlendMode::Copy,
-        );
+        fb.draw_text(2, 0, &ch.to_string(), [255, 255, 255, 255], scale, BlendMode::Copy);
         let stride = fb.stride();
         let below = (base..fb.height() as usize)
             .any(|y| (0..fb.width() as usize).any(|x| fb.as_bytes()[y * stride + x * 4] == 255));

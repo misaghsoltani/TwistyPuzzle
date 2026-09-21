@@ -62,10 +62,7 @@ pub fn sort_by<T, E, F: FnMut(&T, &T) -> Result<i32, E>>(v: &mut [T], mut cmp: F
 }
 
 /// Binary insertion sort: `O(n log n)` comparisons, no allocation.
-fn insertion_sort<T, E, F: FnMut(&T, &T) -> Result<i32, E>>(
-    v: &mut [T],
-    cmp: &mut F,
-) -> Result<(), E> {
+fn insertion_sort<T, E, F: FnMut(&T, &T) -> Result<i32, E>>(v: &mut [T], cmp: &mut F) -> Result<(), E> {
     for i in 1..v.len() {
         // Already in order against its predecessor, so it is already in place.
         // One comparison buys the whole already-sorted case, which is the
@@ -112,7 +109,7 @@ fn merge_sort<T, E, F: FnMut(&T, &T) -> Result<i32, E>>(v: &mut [T], cmp: &mut F
             let hi = (lo + 2 * width).min(n);
             let (mut i, mut j) = (lo, mid);
             for slot in &mut dst[lo..hi] {
-                // `<= 0` rather than `< 0` is the stability: on a tie the left
+                // `<= 0` instead of `< 0` is the stability: on a tie the left
                 // run, which came first in the input, goes first in the output.
                 let take_left = if i >= mid {
                     false
@@ -137,7 +134,7 @@ fn merge_sort<T, E, F: FnMut(&T, &T) -> Result<i32, E>>(v: &mut [T], cmp: &mut F
 
     // `src[k]` is where the element for position `k` currently lives. Invert
     // it, because a cycle of swaps needs to be told where each element goes
-    // rather than where it comes from.
+    // instead of where it comes from.
     for (dest, &from) in src.iter().enumerate() {
         dst[from as usize] = dest as u32;
     }
@@ -172,9 +169,7 @@ mod tests {
     #[test]
     fn sorts_correctly() {
         let mut next = lcg();
-        for len in [
-            0usize, 1, 2, 3, 7, 31, 32, 33, 63, 64, 65, 100, 257, 1000, 4097,
-        ] {
+        for len in [0usize, 1, 2, 3, 7, 31, 32, 33, 63, 64, 65, 100, 257, 1000, 4097] {
             let input: Vec<i32> = (0..len).map(|_| (next() % 50) as i32).collect();
             let mut got = input.clone();
             sort_by_infallible(&mut got, |a, b| a - b);
@@ -225,7 +220,7 @@ mod tests {
 
     /// Comparison counts, at the size that dominates the workload.
     ///
-    /// Exact numbers rather than a bound: they are what distinguishes a binary
+    /// Exact numbers instead of a bound: they are what distinguishes a binary
     /// insertion sort from a linear one, and a regression to linear scanning
     /// would still satisfy any loose inequality at these lengths.
     #[test]

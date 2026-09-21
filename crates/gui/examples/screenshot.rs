@@ -5,7 +5,7 @@
 //! no display server. That makes the layout something a test can inspect rather
 //! than something a person has to.
 //!
-//!     cargo run -p twistypuzzle-gui --example screenshot docs/gui.png
+//!     cargo run -p twistypuzzle-gui example screenshot docs/gui.png
 
 use std::rc::Rc;
 
@@ -28,28 +28,129 @@ impl Platform for Headless {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn platform_system_is_dark() -> Option<bool> {
+    let out = std::process::Command::new("defaults")
+        .args(["read", "-g", "AppleInterfaceStyle"])
+        .output()
+        .ok()?;
+    Some(out.status.success() && String::from_utf8_lossy(&out.stdout).trim() == "Dark")
+}
+
+#[cfg(target_os = "windows")]
+fn platform_system_is_dark() -> Option<bool> {
+    let out = std::process::Command::new("reg")
+        .args([
+            "query",
+            r"HKCU\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize",
+            "/v",
+            "AppsUseLightTheme",
+        ])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&out.stdout);
+    for line in text.lines() {
+        if line.contains("AppsUseLightTheme") {
+            if line.contains("0x0") {
+                return Some(true);
+            }
+            if line.contains("0x1") {
+                return Some(false);
+            }
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "linux")]
+fn platform_system_is_dark() -> Option<bool> {
+    if let Ok(out) = std::process::Command::new("gsettings")
+        .args(["get", "org.gnome.desktop.interface", "color-scheme"])
+        .output()
+    {
+        if out.status.success() {
+            let s = String::from_utf8_lossy(&out.stdout);
+            if s.contains("prefer-dark") {
+                return Some(true);
+            }
+            if s.contains("prefer-light") || s.contains("default") {
+                return Some(false);
+            }
+        }
+    }
+    if let Ok(out) = std::process::Command::new("gsettings")
+        .args(["get", "org.gnome.desktop.interface", "gtk-theme"])
+        .output()
+    {
+        if out.status.success() {
+            let s = String::from_utf8_lossy(&out.stdout).to_lowercase();
+            if s.contains("dark") {
+                return Some(true);
+            }
+            if s.contains("light") {
+                return Some(false);
+            }
+        }
+    }
+    None
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "windows", target_os = "linux")))]
+fn platform_system_is_dark() -> Option<bool> {
+    None
+}
+
+#[allow(clippy::too_many_lines)]
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
-    let is_light =
-        args.iter().any(|a| a == "--light") || std::env::var("THEME").is_ok_and(|v| v == "light");
+    let env_theme = std::env::var("THEME").ok();
+    let theme_val = args
+        .windows(2)
+        .find(|w| w[0] == "--theme")
+        .map(|w| w[1].as_str())
+        .or(env_theme.as_deref());
+    let theme_mode = if args.iter().any(|a| a == "--dark") || theme_val == Some("dark") || theme_val == Some("0") {
+        Some(0)
+    } else if args.iter().any(|a| a == "--light") || theme_val == Some("light") || theme_val == Some("1") {
+        Some(1)
+    } else if theme_val == Some("system") || theme_val == Some("2") {
+        Some(2)
+    } else {
+        None
+    };
+
+    let mut skip_next = false;
     let out = args
         .iter()
         .skip(1)
-        .find(|a| !a.starts_with("--"))
+        .find(|a| {
+            if skip_next {
+                skip_next = false;
+                false
+            } else if *a == "--theme" {
+                skip_next = true;
+                false
+            } else {
+                !a.starts_with("--")
+            }
+        })
         .cloned()
         .unwrap_or_else(|| "gui.png".into());
     let width: u32 = 1040;
     let height: u32 = 700;
 
     let window = MinimalSoftwareWindow::new(RepaintBufferType::NewBuffer);
-    slint::platform::set_platform(Box::new(Headless {
-        window: window.clone(),
-    }))
-    .map_err(|e| format!("setting the platform: {e}"))?;
+    slint::platform::set_platform(Box::new(Headless { window: window.clone() }))
+        .map_err(|e| format!("setting the platform: {e}"))?;
 
     let ui = MainWindow::new()?;
-    if is_light {
-        ui.invoke_apply_theme(1);
+    let system_dark = platform_system_is_dark().unwrap_or(false);
+    ui.invoke_set_system_theme(system_dark);
+    if let Some(mode) = theme_mode {
+        ui.invoke_apply_theme(mode);
     }
     window.set_size(PhysicalSize::new(width, height));
 
@@ -59,10 +160,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         .recipe;
     let mut sim = Simulator::from_query(recipe)?;
     sim.look_from(-28.0, 20.0, 12.0);
-    sim.options_mut().background = if is_light {
-        [228, 233, 240, 255]
-    } else {
+    sim.options_mut().background = if ui.get_is_dark() {
         [27, 30, 36, 255]
+    } else {
+        [228, 233, 240, 255]
     };
     sim.seed(7);
     sim.scramble(12);

@@ -10,7 +10,7 @@
 //! is the vector saying which sticker sits in each slot. For example, for the
 //! 3x3x3: 54 slots, six colors, the solved array running `0,0,0,...,1,1,1,...`.
 //!
-//! It does not describe every puzzle, and says so rather than guessing when it
+//! It does not describe every puzzle, and says so instead of guessing when it
 //! cannot. A puzzle that *jumbles* (such as a Radiolarian, a jumble prism, or the Big
 //! Chop) has legal turns that leave pieces where no piece sits when the puzzle
 //! is solved, so there is no fixed set of slots to number. Thirty-six of the
@@ -132,6 +132,11 @@ pub struct StickerMap {
     /// exterior face, and `face_of[piece][k]` is that face's index.
     home: Vec<Vec<u32>>,
     face_of: Vec<Vec<u32>>,
+    /// The centroid of each slot's sticker on the solved puzzle, as ordinary floats.
+    /// Exact coordinates are what the geometry is computed in. A centroid is only
+    /// ever used to say which way a sticker faces, and a correctly rounded double
+    /// says that unambiguously.
+    positions: Vec<[f64; 3]>,
 }
 
 impl StickerMap {
@@ -145,7 +150,7 @@ impl StickerMap {
         // Collect first, number afterward. Slots are numbered in color order
         // so that the solved array reads `0,0,...,1,1,...`, which is what
         // `arange(54) // 9` gives for the 3x3x3.
-        let mut found: Vec<(String, u16, usize, usize)> = Vec::new();
+        let mut found: Vec<(String, u16, usize, usize, [f64; 3])> = Vec::new();
         let mut palette: Vec<u32> = Vec::new();
         for (p, piece) in puzzle.pieces.iter().enumerate() {
             let world = world_vertices(piece)?;
@@ -160,18 +165,20 @@ impl StickerMap {
                     palette.push(hex);
                     palette.len() - 1
                 };
-                let ci = u16::try_from(ci)
-                    .map_err(|_| Error::Other("puzzle has too many colors".into()))?;
+                let ci = u16::try_from(ci).map_err(|_| Error::Other("puzzle has too many colors".into()))?;
+                let sum = face_sum(&world, face)?;
+                let c = sum.to_f64()?;
+                let k = face.vertices.len() as f64;
                 found.push((
-                    point_key(&face_sum(&world, face)?, face.vertices.len()),
+                    point_key(&sum, face.vertices.len()),
                     ci,
                     p,
                     fi,
+                    [c.x / k, c.y / k, c.z / k],
                 ));
             }
         }
-        u32::try_from(found.len())
-            .map_err(|_| Error::Other("puzzle has too many stickers".into()))?;
+        u32::try_from(found.len()).map_err(|_| Error::Other("puzzle has too many stickers".into()))?;
         found.sort_by_key(|a| (a.1, a.2, a.3));
 
         let n = puzzle.pieces.len();
@@ -181,8 +188,9 @@ impl StickerMap {
             palette,
             home: vec![Vec::new(); n],
             face_of: vec![Vec::new(); n],
+            positions: Vec::with_capacity(found.len()),
         };
-        for (slot, (key, ci, p, fi)) in found.into_iter().enumerate() {
+        for (slot, (key, ci, p, fi, at)) in found.into_iter().enumerate() {
             let slot = slot as u32;
             if map.index.insert(key, slot).is_some() {
                 return Err(Error::State(
@@ -192,6 +200,7 @@ impl StickerMap {
                 ));
             }
             map.home_colors.push(ci);
+            map.positions.push(at);
             map.home[p].push(slot);
             map.face_of[p].push(fi as u32);
         }
@@ -216,6 +225,16 @@ impl StickerMap {
     /// The color in each slot when the puzzle is solved.
     pub fn solved_colors(&self) -> &[u16] {
         &self.home_colors
+    }
+
+    /// Where each slot sits: the centroid of the sticker at home in it, on the
+    /// solved puzzle, before the scale that fits the puzzle in a unit sphere.
+    ///
+    /// Slots do not move, so this is a property of the puzzle instead of a
+    /// state: it says which way slot `i` faces and where on that face it sits,
+    /// which is what a layout over the faces of a cube is built from.
+    pub fn positions(&self) -> &[[f64; 3]] {
+        &self.positions
     }
 
     /// The slot of every exterior face of the solved puzzle, and that face's
@@ -256,10 +275,7 @@ impl StickerMap {
     /// As [`permutation`](Self::permutation).
     pub fn colors(&self, puzzle: &Puzzle, cache: &mut SlotCache) -> Result<Vec<u16>> {
         let perm = self.permutation(puzzle, cache)?;
-        Ok(perm
-            .into_iter()
-            .map(|h| self.home_colors[h as usize])
-            .collect())
+        Ok(perm.into_iter().map(|h| self.home_colors[h as usize]).collect())
     }
 
     /// Whether every sticker is the color it should be.
@@ -282,7 +298,7 @@ impl StickerMap {
             let key = point_key(&face_sum(&world, face)?, face.vertices.len());
             let slot = self.index.get(&key).copied().ok_or_else(|| {
                 Error::State(format!(
-                    "face {fi} of piece {p} is not at any solved sticker position; this puzzle \
+                    "face {fi} of piece {p} is not at any solved sticker position. This puzzle \
                      does not return to its own lattice"
                 ))
             })?;
@@ -294,9 +310,8 @@ impl StickerMap {
 
 /// Memoizes the slots a piece's faces occupy, keyed by the piece's exact rotation.
 ///
-/// A piece takes few distinct orientations, so after a short warm up reading a
-/// whole state costs one hash lookup per piece rather than a rotation per
-/// vertex.
+/// A piece assumes a small set of discrete orientations. Caching these transforms allows
+/// state extraction via hash table lookups instead of recomputing per-vertex rotations.
 #[derive(Default)]
 pub struct SlotCache {
     entries: HashMap<(usize, String), Arc<[u32]>>,
@@ -336,7 +351,7 @@ impl SlotCache {
 /// Grips are re-derived after every move, so an action cannot be a grip index:
 /// it is a plane, matched exactly against the grips the puzzle currently has.
 /// A grip that has gone (a layer locked by a bandaged state) makes the
-/// action unavailable rather than turning some other layer by accident.
+/// action unavailable instead of turning some other layer by accident.
 pub struct ActionTable {
     names: Vec<String>,
     planes: Vec<ExactPlane>,
@@ -357,9 +372,7 @@ impl ActionTable {
     pub fn build(grips: &[Cut]) -> Result<ActionTable> {
         let mut axes: IndexMap<String, Vec<usize>> = IndexMap::new();
         for (i, g) in grips.iter().enumerate() {
-            axes.entry(direction_key(&g.plane.normal)?)
-                .or_default()
-                .push(i);
+            axes.entry(direction_key(&g.plane.normal)?).or_default().push(i);
         }
         let mut names = vec![String::new(); grips.len()];
         for (ai, members) in axes.values().enumerate() {
@@ -402,11 +415,7 @@ impl ActionTable {
     /// action `2k + 1` turns it back.
     pub fn action_name(&self, i: usize) -> Option<String> {
         let name = self.names.get(i / 2)?;
-        Some(if i % 2 == 0 {
-            name.clone()
-        } else {
-            format!("{name}'")
-        })
+        Some(if i % 2 == 0 { name.clone() } else { format!("{name}'") })
     }
 
     /// Every action name, in index order.
@@ -473,11 +482,7 @@ fn direction_key(v: &ExactVector3) -> Result<String> {
     if c.is_zero() {
         return Err(Error::State("a grip has a degenerate axis".into()));
     }
-    let unit = ExactVector3::new(
-        Elem::div(&v.x, c)?,
-        Elem::div(&v.y, c)?,
-        Elem::div(&v.z, c)?,
-    );
+    let unit = ExactVector3::new(Elem::div(&v.x, c)?, Elem::div(&v.y, c)?, Elem::div(&v.z, c)?);
     let sign = if c.sign()? < 0 { '-' } else { '+' };
     let mut s = String::with_capacity(64);
     s.push(sign);
@@ -539,10 +544,7 @@ pub fn parse_moves(table: &ActionTable, text: &str) -> Result<Vec<Move>> {
 pub fn parse_move(table: &ActionTable, word: &str) -> Result<Move> {
     let (base, dir) = split_direction(word);
     if let Some(a) = table.action_index(word) {
-        return Ok(Move {
-            action: a,
-            repeat: 1,
-        });
+        return Ok(Move { action: a, repeat: 1 });
     }
     // `<name><count>`: peel the trailing digits off and try again, but only if
     // what is left is itself a grip: `A12` is grip `A1` twice, not grip `A` a
@@ -566,7 +568,7 @@ pub fn parse_move(table: &ActionTable, word: &str) -> Result<Move> {
         });
     }
     Err(Error::Parse(format!(
-        "'{word}' is not a move of this puzzle; its grips are {}",
+        "'{word}' is not a move of this puzzle. Its grips are {}",
         table.names.join(", ")
     )))
 }
@@ -581,11 +583,11 @@ pub fn parse_move(table: &ActionTable, word: &str) -> Result<Move> {
 /// when the puzzle is solved (the Radiolarians, the jumble prisms, the Big
 /// Chop). For those there is no fixed set of sticker slots to number, so there
 /// is no sticker array either, and [`StickerMap::colors`] reports which sticker
-/// left rather than inventing a slot for it. Thirty-six of the eighty-five
+/// left instead of inventing a slot for it. Thirty-six of the eighty-five
 /// cataloged puzzles do not jumble, and [`NON_JUMBLING`] lists them.
 ///
 /// This builds and turns a puzzle of its own, so it disturbs nothing, and it is
-/// a probe rather than a proof: it tries every single turn from solved and then
+/// a probe instead of a proof: it tries every single turn from solved and then
 /// a forty-move walk.
 ///
 /// # Errors
@@ -624,8 +626,8 @@ pub fn jumbles(recipe: &str) -> Result<bool> {
 
 /// The cataloged recipes that do not jumble, and so have a sticker array.
 ///
-/// Derived by [`jumbles`] and pinned here so that asking the question costs
-/// nothing, and `every_non_jumbling_entry_is_listed` re-derives it.
+/// Precomputed via [`jumbles`] to provide constant-time non-jumbling membership
+/// queries, and validated dynamically in test suites.
 pub const NON_JUMBLING: &[&str] = &[
     "?shell=T$1&cut=T$0",
     "?shell=T$1&cut=T$-1/3",
@@ -671,13 +673,11 @@ pub const NON_JUMBLING: &[&str] = &[
 
 /// Every move of a puzzle, as a permutation of its sticker slots.
 ///
-/// Turning a puzzle geometrically is expensive: a move re-derives the whole cut
-/// structure, which for a 3x3x3 is about two milliseconds. For a puzzle whose
-/// moves are fixed permutations (which is every puzzle that does not jumble),
-/// the same turn is a gather, and a state can be stepped in nanoseconds.
+/// Geometric turns require reconstructing 3D cut topology. For non-jumbling puzzles whose
+/// moves correspond to fixed permutations, transitions simplify to vectorized index gathers.
 ///
 /// Each move is applied once to the solved puzzle, the resulting slot permutation
-/// is recorded, and the move is taken back.
+/// is recorded, and the move is reversed.
 ///
 /// `new[i] = old[moves[a][i]]`.
 pub struct PermutationTable {
@@ -755,19 +755,14 @@ impl PermutationTable {
     /// The table is derived from single moves out of the solved state, which
     /// only shows that each move *is* a permutation there. This turns the
     /// puzzle both ways at once and requires them to agree, which is what
-    /// makes the fast path a checked property rather than an assumption.
+    /// makes the fast path a checked property instead of an assumption.
     ///
     /// Leaves the puzzle where it found it.
     ///
     /// # Errors
     ///
     /// If turning the puzzle fails.
-    pub fn verify(
-        &self,
-        sim: &mut crate::simulator::Simulator,
-        steps: usize,
-        seed: u64,
-    ) -> Result<bool> {
+    pub fn verify(&self, sim: &mut crate::simulator::Simulator, steps: usize, seed: u64) -> Result<bool> {
         let mut state = self.solved.clone();
         let mut scratch = Vec::with_capacity(state.len());
         let mut rng = seed | 1;
@@ -831,12 +826,6 @@ pub fn ground_atoms(colors: &[u16]) -> Vec<(String, String, String)> {
     colors
         .iter()
         .enumerate()
-        .map(|(i, &c)| {
-            (
-                COLOR_PREDICATE.to_string(),
-                format!("s{i}"),
-                format!("c{c}"),
-            )
-        })
+        .map(|(i, &c)| (COLOR_PREDICATE.to_string(), format!("s{i}"), format!("c{c}")))
         .collect()
 }

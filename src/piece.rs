@@ -1,6 +1,6 @@
 //! Convex polyhedral pieces and exact plane slicing.
 //!
-//! Map choices here are normative rather than incidental: `edge_index`
+//! Map choices here are normative instead of incidental: `edge_index`
 //! iterates in insertion order (`IndexMap`) and `cutgraph` in ascending key
 //! order (`BTreeMap`). `cutgraph` order decides which vertex starts the
 //! traversal, and therefore the winding (and thus the outward normal) of
@@ -61,12 +61,7 @@ impl PolyGeometry {
                 for v in [v0, vcur, vnext] {
                     positions.extend_from_slice(&[v.x as f32, v.y as f32, v.z as f32]);
                     normals.extend_from_slice(&[n.x as f32, n.y as f32, n.z as f32]);
-                    colors.extend_from_slice(&[
-                        pf.color.r as f32,
-                        pf.color.g as f32,
-                        pf.color.b as f32,
-                        1.0,
-                    ]);
+                    colors.extend_from_slice(&[pf.color.r as f32, pf.color.g as f32, pf.color.b as f32, 1.0]);
                 }
             }
         }
@@ -85,18 +80,13 @@ pub struct TriangleBuffers {
 }
 
 /// An axis-aligned cube of half-width `d`.
-pub fn cube_polygeometry(
-    d: &AlgebraicNumber,
-    color: Color,
-    interior: bool,
-) -> Result<PolyGeometry> {
+pub fn cube_polygeometry(d: &AlgebraicNumber, color: Color, interior: bool) -> Result<PolyGeometry> {
     let mut g = PolyGeometry::empty();
     let nd = Elem::neg(d);
     for z in [&nd, d] {
         for y in [&nd, d] {
             for x in [&nd, d] {
-                g.vertices
-                    .push(ExactVector3::new(x.clone(), y.clone(), z.clone()));
+                g.vertices.push(ExactVector3::new(x.clone(), y.clone(), z.clone()));
             }
         }
     }
@@ -158,8 +148,7 @@ pub fn slice_polygeometry(
     let mut back = PolyGeometry::empty();
     let mut backmap: std::collections::HashMap<usize, usize> = std::collections::HashMap::new();
     // Cache of edge intersections, keyed by the edge's endpoints.
-    let mut cross_index: std::collections::HashMap<(usize, usize), usize> =
-        std::collections::HashMap::new();
+    let mut cross_index: std::collections::HashMap<(usize, usize), usize> = std::collections::HashMap::new();
 
     for face in &geometry.faces {
         // Slice the face into frontpoints and backpoints.
@@ -169,11 +158,7 @@ pub fn slice_polygeometry(
         for &cur in &face.vertices {
             if sides[cur] * sides[prev] < 0 {
                 // Opposite sides: add the intersection point as a new vertex.
-                let h = if sides[cur] > 0 {
-                    (prev, cur)
-                } else {
-                    (cur, prev)
-                };
+                let h = if sides[cur] > 0 { (prev, cur) } else { (cur, prev) };
                 let c = if let Some(&c) = cross_index.get(&h) {
                     c
                 } else {
@@ -239,7 +224,7 @@ pub fn slice_polygeometry(
 ///
 /// The edges of the missing face are the ones that appear exactly once. They
 /// form an undirected graph which is traversed to recover the cut polygon in
-/// counter-clockwise order.
+/// counterclockwise order.
 fn close_polyhedron(geometry: &mut PolyGeometry, plane: &ExactPlane, color: Color, interior: bool) {
     // Insertion-ordered, and the order is observable: see the module note.
     let mut edge_index: IndexMap<(usize, usize), Vec<(usize, usize)>> = IndexMap::new();
@@ -255,10 +240,7 @@ fn close_polyhedron(geometry: &mut PolyGeometry, plane: &ExactPlane, color: Colo
     // Ascending key order, which decides the winding of the new face.
     let mut cutgraph: BTreeMap<usize, Vec<usize>> = BTreeMap::new();
     for edges in edge_index.values() {
-        crate::console_assert!(
-            edges.len() <= 2,
-            "close_polyhedron: edge used more than twice"
-        );
+        crate::console_assert!(edges.len() <= 2, "close_polyhedron: edge used more than twice");
         if edges.len() == 1 {
             let (a, b) = edges[0];
             cutgraph.entry(b).or_default().push(a);
@@ -269,7 +251,7 @@ fn close_polyhedron(geometry: &mut PolyGeometry, plane: &ExactPlane, color: Colo
     let mut n_visited = 0usize;
     let vs: Vec<usize> = cutgraph.keys().copied().collect();
 
-    // Traverse cutgraph to put the points in counter-clockwise order.
+    // Traverse cutgraph to put the points in counterclockwise order.
     while n_visited < vs.len() {
         let mut cutpoints: Vec<usize> = Vec::new();
         let mut v = vs.iter().copied().find(|u| !visited.contains(u));

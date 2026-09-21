@@ -2,16 +2,12 @@
 //! the catalog.
 //!
 //! The load-bearing question these tests answer is whether a state read from
-//! the stored geometry is the state a solver would recognize. `make_move` keeps
-//! piece 0 still: a turn whose front half contains it is applied to the *other*
-//! half the other way, and the difference is accumulated into `global_rot`
-//! instead. The stored configuration is therefore the true one composed with a
-//! rotation that was never applied to any piece, and a sticker array read from
-//! it is only meaningful if that rotation maps the puzzle's sticker positions
-//! onto themselves.
-//!
-//! `an_undone_scramble_is_solved_again` is the test that would fail if it did
-//! not, on any puzzle where it did not.
+//! the stored geometry is the state a solver would recognize. A move turns one
+//! side of a cut and nothing else, so the stored configuration *is* the true
+//! one: nothing is held still and no rotation is carried outside the pieces
+//! (`SEMANTICS.md` §11). `a_turn_never_rotates_the_whole_puzzle` is what keeps
+//! that so, and `an_undone_scramble_is_solved_again` is what would fail on any
+//! puzzle where the numbering did not survive a turn.
 
 use twistypuzzle::simulator::Simulator;
 use twistypuzzle::symbolic::parse_moves;
@@ -54,18 +50,12 @@ fn a_fresh_puzzle_is_solved_and_its_stickers_are_numbered() {
         let view = s.symbolic().expect("symbolic view");
         let n = view.stickers.sticker_count();
         assert!(n > 0, "{recipe} has no stickers");
-        assert!(
-            view.stickers.color_count() > 1,
-            "{recipe} has only one sticker color"
-        );
+        assert!(view.stickers.color_count() > 1, "{recipe} has only one sticker color");
         assert_eq!(view.stickers.solved_colors().len(), n);
 
         let colors = s.stickers().expect("stickers");
         assert_eq!(colors.len(), n);
-        assert!(
-            s.is_solved().expect("is_solved"),
-            "{recipe} starts unsolved"
-        );
+        assert!(s.is_solved().expect("is_solved"), "{recipe} starts unsolved");
 
         // The permutation of a solved puzzle is the identity.
         let ids = s.sticker_ids().expect("sticker ids");
@@ -77,7 +67,7 @@ fn a_fresh_puzzle_is_solved_and_its_stickers_are_numbered() {
 }
 
 #[test]
-fn the_three_by_three_looks_like_deepxubes_cube3() {
+fn the_three_by_three_reads_the_way_a_cube_is_usually_read() {
     let mut s = sim("?shell=C$1&cut=C$1/3");
     let view = s.symbolic().expect("symbolic view");
     assert_eq!(view.stickers.sticker_count(), 54, "a 3x3x3 has 54 stickers");
@@ -165,26 +155,26 @@ fn an_undone_scramble_is_solved_again() {
 }
 
 #[test]
-fn the_piece_zero_compensation_is_tested_and_harmless() {
-    // `make_move` only rotates the whole puzzle when a turn would move piece 0.
-    // If the catalog never took that path these tests would prove nothing.
-    let mut s = sim("?shell=C$1&cut=C$1/3");
-    let count = s.symbolic().expect("view").actions.action_count();
-    let mut compensated = false;
-    for a in 0..count {
-        let mut t = sim("?shell=C$1&cut=C$1/3");
-        t.apply_action(a).expect("apply");
-        let g = t.puzzle().global_rot;
-        if (g.w - 1.0).abs() > 1e-9 {
-            compensated = true;
-            // And the state still reads, and reads as unsolved.
-            assert!(!t.is_solved().expect("is_solved"));
+fn a_turn_never_rotates_the_whole_puzzle() {
+    // A move turns one side of a cut and leaves the other where it is. The
+    // alternative, turning the other side and spinning the whole puzzle back,
+    // draws the same picture but moves every slot, so the state would no
+    // longer describe the frame it is drawn in (`SEMANTICS.md` §11). Nothing
+    // may reintroduce that.
+    for recipe in SAMPLE {
+        let mut s = sim(recipe);
+        let count = s.symbolic().expect("view").actions.action_count();
+        let mut rng = Rng(0x243F_6A88_85A3_08D3);
+        for _ in 0..24 {
+            let a = rng.below(count);
+            s.apply_action(a).expect("apply");
+            let g = s.puzzle().global_rot;
+            assert!(
+                (g.w.abs() - 1.0).abs() < 1e-12 && g.x.abs() < 1e-12 && g.y.abs() < 1e-12 && g.z.abs() < 1e-12,
+                "{recipe}: action {a} spun the whole puzzle to {g:?}"
+            );
         }
     }
-    assert!(
-        compensated,
-        "no face turn of a 3x3x3 moved piece 0, so the compensation path went untested"
-    );
 }
 
 #[test]
@@ -248,9 +238,8 @@ fn every_non_jumbling_puzzle_can_be_read_and_restored() {
                 Ok(false) => {},
                 Err(e) => panic!("{recipe}: action {a}: {e}"),
             }
-            s.stickers().unwrap_or_else(|e| {
-                panic!("{recipe}: after {applied:?} the state no longer reads: {e}")
-            });
+            s.stickers()
+                .unwrap_or_else(|e| panic!("{recipe}: after {applied:?} the state no longer reads: {e}"));
         }
 
         for &a in applied.iter().rev() {
@@ -274,10 +263,7 @@ fn every_non_jumbling_puzzle_can_be_read_and_restored() {
 /// minute it takes.
 #[test]
 fn every_non_jumbling_entry_is_listed() {
-    let listed: std::collections::HashSet<&str> = twistypuzzle::symbolic::NON_JUMBLING
-        .iter()
-        .copied()
-        .collect();
+    let listed: std::collections::HashSet<&str> = twistypuzzle::symbolic::NON_JUMBLING.iter().copied().collect();
     assert_eq!(
         listed.len(),
         twistypuzzle::symbolic::NON_JUMBLING.len(),
@@ -303,7 +289,7 @@ fn every_non_jumbling_entry_is_listed() {
     );
 }
 
-/// A jumbling puzzle says so, rather than handing back a wrong array.
+/// A jumbling puzzle says so, instead of handing back a wrong array.
 #[test]
 fn a_jumbling_puzzle_refuses_to_pretend() {
     // The Radiolarians are the textbook case: a face turn of an icosahedron
@@ -334,25 +320,14 @@ fn undo_takes_back_a_turn_however_it_was_made() {
     for recipe in SAMPLE {
         let mut s = sim(recipe);
         let solved = s.stickers().expect("stickers");
-        assert!(
-            !s.undo().expect("undo"),
-            "{recipe}: undid a turn never made"
-        );
+        assert!(!s.undo().expect("undo"), "{recipe}: undid a turn never made");
 
         // By direction.
         s.begin_move(0, 1).expect("turn");
         s.end_move();
-        assert_ne!(
-            s.stickers().expect("stickers"),
-            solved,
-            "{recipe}: turn did nothing"
-        );
+        assert_ne!(s.stickers().expect("stickers"), solved, "{recipe}: turn did nothing");
         assert!(s.undo().expect("undo"));
-        assert_eq!(
-            s.stickers().expect("stickers"),
-            solved,
-            "{recipe}: undo of a turn"
-        );
+        assert_eq!(s.stickers().expect("stickers"), solved, "{recipe}: undo of a turn");
         assert_eq!(s.history_len(), 0);
 
         // To a named stop, which may be a half turn the opposite direction
@@ -378,11 +353,7 @@ fn undo_takes_back_a_turn_however_it_was_made() {
         }
         assert_eq!(s.history_len(), 6);
         while s.undo().expect("undo") {}
-        assert_eq!(
-            s.stickers().expect("stickers"),
-            solved,
-            "{recipe}: unwinding six turns"
-        );
+        assert_eq!(s.stickers().expect("stickers"), solved, "{recipe}: unwinding six turns");
     }
 }
 
@@ -398,25 +369,18 @@ fn the_permutation_table_agrees_with_the_geometry() {
     let mut without = Vec::new();
     for recipe in twistypuzzle::symbolic::NON_JUMBLING {
         let mut s = sim(recipe);
-        let Some(table) =
-            PermutationTable::build(&mut s).unwrap_or_else(|e| panic!("{recipe}: {e}"))
-        else {
+        let Some(table) = PermutationTable::build(&mut s).unwrap_or_else(|e| panic!("{recipe}: {e}")) else {
             without.push(*recipe);
             continue;
         };
-        assert_eq!(
-            table.action_count(),
-            s.symbolic().expect("view").actions.action_count()
-        );
+        assert_eq!(table.action_count(), s.symbolic().expect("view").actions.action_count());
         assert_eq!(table.sticker_count(), s.stickers().expect("stickers").len());
         assert!(
             s.is_solved().expect("is_solved"),
             "{recipe}: deriving disturbed the puzzle"
         );
         assert!(
-            table
-                .verify(&mut s, 24, 0x2545_F491_4F6C_DD1D)
-                .expect("verify"),
+            table.verify(&mut s, 24, 0x2545_F491_4F6C_DD1D).expect("verify"),
             "{recipe}: the table and the geometry disagree"
         );
         assert!(
@@ -430,7 +394,7 @@ fn the_permutation_table_agrees_with_the_geometry() {
     );
 }
 
-/// A jumbling puzzle has no table, and says so rather than producing a wrong one.
+/// A jumbling puzzle has no table, and says so instead of producing a wrong one.
 #[test]
 fn a_jumbling_puzzle_has_no_permutation_table() {
     let mut s = sim("?shell=I$1&cut=I$1/3");

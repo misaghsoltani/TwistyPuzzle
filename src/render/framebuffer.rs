@@ -54,16 +54,28 @@ impl Framebuffer {
         fb
     }
 
+    /// Make this the given size, keeping the allocation when it is big enough.
+    ///
+    /// The contents afterward are not defined: this is for a surface that is
+    /// about to be cleared or completely overwritten.
+    pub(crate) fn resize(&mut self, width: u32, height: u32) {
+        self.width = width;
+        self.height = height;
+        self.data.resize(width as usize * height as usize * 4, 0);
+    }
+
+    /// Bytes held, which is at least `width * height * 4`.
+    #[inline]
+    pub fn capacity(&self) -> usize {
+        self.data.capacity()
+    }
+
     /// Wrap existing RGBA8 bytes.
     pub fn from_raw(width: u32, height: u32, data: Vec<u8>) -> Option<Framebuffer> {
         if data.len() != width as usize * height as usize * 4 {
             return None;
         }
-        Some(Framebuffer {
-            width,
-            height,
-            data,
-        })
+        Some(Framebuffer { width, height, data })
     }
 
     #[inline]
@@ -95,12 +107,7 @@ impl Framebuffer {
     #[inline]
     pub fn pixel(&self, x: u32, y: u32) -> [u8; 4] {
         let i = (y as usize * self.width as usize + x as usize) * 4;
-        [
-            self.data[i],
-            self.data[i + 1],
-            self.data[i + 2],
-            self.data[i + 3],
-        ]
+        [self.data[i], self.data[i + 1], self.data[i + 2], self.data[i + 3]]
     }
 
     #[inline]
@@ -208,36 +215,57 @@ impl Framebuffer {
         if factor == 1 {
             return self.clone();
         }
+        let mut out = Framebuffer::new(self.width / factor, self.height / factor);
+        self.downsample_into(factor, &mut out.data);
+        out
+    }
+
+    /// The same box filter, into bytes the caller owns.
+    ///
+    /// `out` is `(width / factor) * (height / factor)` RGBA8 pixels, which for
+    /// a window is the surface it is about to show: the resolve is the last
+    /// pass over the image, so there is nothing to gain by landing it anywhere
+    /// else first.
+    ///
+    /// # Panics
+    ///
+    /// If `factor` is zero, or `out` is not exactly the resolved size.
+    pub fn downsample_into(&self, factor: u32, out: &mut [u8]) {
+        assert!(factor >= 1, "downsample factor must be positive");
         let ow = self.width / factor;
         let oh = self.height / factor;
-        let mut out = Framebuffer::new(ow, oh);
+        assert_eq!(
+            out.len(),
+            ow as usize * oh as usize * 4,
+            "a resolved frame is this many bytes"
+        );
+        if factor == 1 {
+            out.copy_from_slice(&self.data);
+            return;
+        }
         let n = factor * factor;
         let half = n / 2;
         let src = &self.data;
         let sw = self.width as usize;
-        out.data
-            .par_chunks_mut(ow as usize * 4)
-            .enumerate()
-            .for_each(|(oy, row)| {
-                for ox in 0..ow as usize {
-                    let mut acc = [0u32; 4];
-                    for sy in 0..factor as usize {
-                        let base = ((oy * factor as usize + sy) * sw + ox * factor as usize) * 4;
-                        for sx in 0..factor as usize {
-                            let i = base + sx * 4;
-                            acc[0] += u32::from(src[i]);
-                            acc[1] += u32::from(src[i + 1]);
-                            acc[2] += u32::from(src[i + 2]);
-                            acc[3] += u32::from(src[i + 3]);
-                        }
-                    }
-                    for c in 0..4 {
-                        // Round half up, as a resolve does.
-                        row[ox * 4 + c] = ((acc[c] + half) / n) as u8;
+        out.par_chunks_mut(ow as usize * 4).enumerate().for_each(|(oy, row)| {
+            for ox in 0..ow as usize {
+                let mut acc = [0u32; 4];
+                for sy in 0..factor as usize {
+                    let base = ((oy * factor as usize + sy) * sw + ox * factor as usize) * 4;
+                    for sx in 0..factor as usize {
+                        let i = base + sx * 4;
+                        acc[0] += u32::from(src[i]);
+                        acc[1] += u32::from(src[i + 1]);
+                        acc[2] += u32::from(src[i + 2]);
+                        acc[3] += u32::from(src[i + 3]);
                     }
                 }
-            });
-        out
+                for c in 0..4 {
+                    // Round half up, as a resolve does.
+                    row[ox * 4 + c] = ((acc[c] + half) / n) as u8;
+                }
+            }
+        });
     }
 
     /// Nearest-neighbor scale into a new surface.

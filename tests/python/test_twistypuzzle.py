@@ -1,7 +1,7 @@
 """Tests for the installed `twistypuzzle` wheel.
 
 These test the package as a user gets it, through the extension module
-rather than the Rust crate, so they catch things the Rust test suite structurally
+instead of the Rust crate, so they catch things the Rust test suite structurally
 cannot: a stub that disagrees with the runtime, a name exported that does not
 exist, a GIL interaction, a buffer whose shape is wrong.
 
@@ -187,8 +187,8 @@ def test_floats_are_correctly_rounded() -> None:
     assert float(tp.Fraction(1, 3)) == 1 / 3
     assert float(tp.Fraction(-22, 7)) == -22 / 7
 
-    # One conversion, and the renderer reads coordinates through it. A second
-    # entry point offering a cheaper, less accurate answer would be a trap.
+    # Single canonical float conversion ensuring consistent numeric precision
+    # across rendering pipelines.
     assert not hasattr(tp.evaluate("sqrt(2)"), "to_number")
     assert not hasattr(tp.Fraction(1, 3), "to_number")
 
@@ -639,7 +639,7 @@ def test_threads_get_the_same_answers_as_one_thread() -> None:
 
     Each puzzle owns its number field, so several threads driving several
     puzzles is safe, but refinement mutates state shared *within* a puzzle,
-    so this checks rather than assumes.
+    so this checks instead of assuming.
     """
     from concurrent.futures import ThreadPoolExecutor
 
@@ -706,7 +706,7 @@ def test_unmapped_characters_fall_back_rather_than_fail() -> None:
 
 
 def test_one_puzzle_cannot_be_rendered_from_two_threads_at_once() -> None:
-    """The overlap is refused rather than silently producing different pixels.
+    """The overlap is refused instead of silently producing different pixels.
 
     Rendering narrows the isolating interval the puzzle's numbers share, so
     two threads inside `render` on the same object would make the coordinates

@@ -1,10 +1,9 @@
-//! The interactive simulator: everything an application needs around a
-//! puzzle, with no window system in sight.
+//! The interactive simulator.
 //!
 //! A [`Simulator`] owns a puzzle, its renderable meshes, the grips and their
 //! arrows, a camera with trackball controls, and the state of an in-progress
 //! move. Drive it by feeding pointer events and calling [`Simulator::frame`],
-//! which hands back a finished image.
+//! which returns a rendered image.
 
 use std::sync::Arc;
 
@@ -15,8 +14,9 @@ use crate::math::{ExactQuaternion, Quat, Vec3};
 use crate::movement::{find_cuts, find_stops, make_move, Cut, Puzzle};
 use crate::parse::{generate_query, parse_query, PuzzleRecipe};
 use crate::render::camera::{Camera, Mat4};
+use crate::render::lut::StickerLut;
 use crate::render::scene::{
-    arrow_instances, render_frame, ArrowInstance, PuzzleMeshes, SceneOptions,
+    arrow_instances, render_frame_into, ArrowInstance, FrameScratch, PuzzleMeshes, SceneOptions,
 };
 use crate::render::trackball::{Pointer, TrackballControls};
 use crate::render::Framebuffer;
@@ -99,13 +99,12 @@ pub struct Simulator {
     symbolic: Option<Arc<SymbolicView>>,
     slot_cache: SlotCache,
 
-    /// The plane and rotation of every turn made, newest last, so a move can
-    /// be taken back exactly, without knowing what named it.
+    /// The plane and rotation of every turn made, newest last, allowing moves
+    /// to be inverted exactly without requiring the original move identifier.
     history: Vec<(crate::math::ExactPlane, ExactQuaternion)>,
 }
 
-/// A puzzle's sticker numbering and its move names, which together turn its
-/// geometry into the integer arrays and move strings a solver wants.
+/// Maps the puzzle's 3D geometry into discrete integer slot arrays and symbolic move names.
 pub struct SymbolicView {
     pub stickers: StickerMap,
     pub actions: ActionTable,
@@ -121,10 +120,7 @@ impl Simulator {
 
     pub fn from_recipe(recipe: PuzzleRecipe) -> Result<Simulator> {
         let BuiltPuzzle {
-            puzzle,
-            scale,
-            field,
-            ..
+            puzzle, scale, field, ..
         } = build(&recipe)?;
         let meshes = PuzzleMeshes::build(&puzzle)?;
         let mut sim = Simulator {
@@ -364,9 +360,8 @@ impl Simulator {
     /// Turn grip `ci` to the stop `stop` of [`Simulator::stops`], whatever
     /// direction that lies in.
     ///
-    /// The finest control there is over a move: `begin_move` picks the nearest
-    /// stop that is not where the puzzle already stands, and this picks any of
-    /// them.
+    /// Provides direct control over layer orientation by specifying a target
+    /// stop index from [`Simulator::stops`].
     pub fn begin_move_to(&mut self, ci: usize, stop: usize) -> Result<()> {
         self.begin_turn(ci, Turn::Stop(stop))
     }
@@ -393,10 +388,7 @@ impl Simulator {
         let (rot, mut angle) = match turn {
             Turn::Stop(k) => {
                 let r = rots.get(k).ok_or_else(|| {
-                    Error::Range(format!(
-                        "stop index {k} out of range (grip {ci} has {})",
-                        rots.len()
-                    ))
+                    Error::Range(format!("stop index {k} out of range (grip {ci} has {})", rots.len()))
                 })?;
                 (r.clone(), r.approx_angle()?)
             },
@@ -461,12 +453,12 @@ impl Simulator {
         Ok(())
     }
 
-    /// Take the last turn back, returning `false` if there is none to take.
+    /// Invert the most recent turn, returning `false` if the move history is empty.
     ///
     /// The move is recorded by the plane it turned about and the exact rotation
     /// it applied, so undoing it applies that rotation's inverse, which is
     /// right whether the turn was taken by direction or to a named stop. The
-    /// plane, rather than the grip index, because the grips are re-derived
+    /// plane, instead of the grip index, because the grips are re-derived
     /// after every turn and their order need not hold.
     pub fn undo(&mut self) -> Result<bool> {
         let Some((plane, rot)) = self.history.pop() else {
@@ -491,10 +483,9 @@ impl Simulator {
         Ok(true)
     }
 
-    /// Take every turn back, leaving the puzzle solved.
+    /// Inverts all applied moves in reverse order to return the puzzle to its solved configuration.
     ///
-    /// Cheaper than building it again: a turn is undone by one exact rotation,
-    /// where a rebuild re-derives the whole geometry.
+    /// Undoing moves inverts exact rotations sequentially, avoiding full geometric recomputation.
     ///
     /// Returns `false` if a locked layer stopped it part-way, in which case the
     /// puzzle is as far back as it could get and the rest of the history is
@@ -508,7 +499,7 @@ impl Simulator {
         Ok(true)
     }
 
-    /// How many turns have been made and not taken back.
+    /// The number of applied turns in the current history.
     pub fn history_len(&self) -> usize {
         self.history.len()
     }
@@ -570,11 +561,7 @@ impl Simulator {
     pub fn advance(&mut self, dt_ms: f64) -> Result<()> {
         if let Some(m) = self.active.as_mut() {
             m.elapsed += dt_ms;
-            let ti = if m.duration > 0.0 {
-                m.elapsed / m.duration
-            } else {
-                2.0
-            };
+            let ti = if m.duration > 0.0 { m.elapsed / m.duration } else { 2.0 };
             if ti > 1.0 {
                 self.end_move();
             } else {
@@ -593,28 +580,85 @@ impl Simulator {
 
     /// Render the current state.
     pub fn render(&self, width: u32, height: u32) -> Framebuffer {
-        let mut arrows = self.arrows.clone();
-        if let Some(h) = self.hovered_arrow {
-            if let Some(a) = arrows.get_mut(h) {
-                a.highlighted = true;
-            }
-        }
+        let mut fb = Framebuffer::new(width, height);
+        let mut scratch = FrameScratch::new();
+        self.render_into(width, height, &mut scratch, fb.as_bytes_mut())
+            .expect("a framebuffer of the size asked for");
+        fb
+    }
+
+    /// Draw the same frame into `out`, which is `width * height` RGBA8 pixels.
+    ///
+    /// Reuses preallocated rasterization and depth buffers stored in `scratch`,
+    /// avoiding per-frame allocations during interactive rendering.
+    ///
+    /// The scratch belongs to the caller and not to the simulator, so that a
+    /// simulator stays shareable across threads.
+    ///
+    /// # Errors
+    ///
+    /// If `out` is not exactly `width * height * 4` bytes.
+    pub fn render_into(&self, width: u32, height: u32, scratch: &mut FrameScratch, out: &mut [u8]) -> Result<()> {
         let mut camera = self.camera;
         camera.aspect = if height == 0 {
             1.0
         } else {
             f64::from(width) / f64::from(height)
         };
-        render_frame(
+        render_frame_into(
+            scratch,
             &self.meshes,
             &self.piece_quats,
             self.scale,
-            &arrows,
+            &self.arrows,
+            self.hovered_arrow,
             &camera,
             width,
             height,
             &self.options,
+            out,
         )
+    }
+
+    /// Work out which sticker slot each pixel of a frame would show.
+    ///
+    /// Precomputes slot-to-pixel visibility for the specified camera and frame dimensions,
+    /// enabling high-throughput rendering via direct per-pixel lookups. It describes
+    /// *this* camera and *this* size: move the camera or ask for another size and it
+    /// must be built again.
+    ///
+    /// Only meaningful for a puzzle whose stickers stay on the solved lattice,
+    /// and only while it is at rest. The arrows are left out, because they are
+    /// blended instead of written and their pixels are not a function of any
+    /// slot. `SEMANTICS.md` §10 states the conditions in full.
+    ///
+    /// # Errors
+    ///
+    /// If the puzzle has no sticker numbering.
+    pub fn sticker_lut(&mut self, width: u32, height: u32) -> Result<StickerLut> {
+        let view = self.symbolic()?;
+        let mut camera = self.camera;
+        camera.aspect = if height == 0 {
+            1.0
+        } else {
+            f64::from(width) / f64::from(height)
+        };
+        let mut opts = self.options;
+        opts.draw_arrows = false;
+        Ok(StickerLut::build(
+            &self.meshes,
+            &self.piece_quats,
+            self.scale,
+            &camera,
+            width,
+            height,
+            &opts,
+            view.stickers.solved_colors(),
+            &|p, face| {
+                let (slots, faces) = view.stickers.home_slots(p);
+                faces.iter().position(|&f| f == face).map(|k| slots[k])
+            },
+        ))
     }
 
     /// Advance by `dt_ms` and render, the usual per-frame call.
@@ -629,12 +673,7 @@ impl Simulator {
         let cut = self
             .grips
             .get(ci)
-            .ok_or_else(|| {
-                Error::Range(format!(
-                    "grip index {ci} out of range (have {})",
-                    self.grips.len()
-                ))
-            })?
+            .ok_or_else(|| Error::Range(format!("grip index {ci} out of range (have {})", self.grips.len())))?
             .clone();
         find_stops(&mut self.puzzle, &cut)
     }
@@ -678,7 +717,7 @@ impl Simulator {
         self.slot_cache.clear();
     }
 
-    /// The color in each sticker slot: the state as a network sees it.
+    /// The color in each sticker slot as an integer array.
     pub fn stickers(&mut self) -> Result<Vec<u16>> {
         let view = self.symbolic()?;
         view.stickers.colors(&self.puzzle, &mut self.slot_cache)
@@ -687,8 +726,17 @@ impl Simulator {
     /// Where the sticker in each slot belongs: the state as a permutation.
     pub fn sticker_ids(&mut self) -> Result<Vec<u32>> {
         let view = self.symbolic()?;
-        view.stickers
-            .permutation(&self.puzzle, &mut self.slot_cache)
+        view.stickers.permutation(&self.puzzle, &mut self.slot_cache)
+    }
+
+    /// Where each sticker slot sits on the solved puzzle.
+    ///
+    /// Slots do not move, so this describes the puzzle instead of its state.
+    /// Coordinates are before the scale that fits the puzzle in a unit sphere,
+    /// which is what [`scale`](Self::scale) reports.
+    pub fn sticker_positions(&mut self) -> Result<Vec<[f64; 3]>> {
+        let view = self.symbolic()?;
+        Ok(view.stickers.positions().to_vec())
     }
 
     /// Whether every sticker is the color it should be.
@@ -748,9 +796,7 @@ pub fn turnable_cuts(puzzle: &mut Puzzle) -> Result<Vec<Cut>> {
             grips.push(cut.neg());
         }
     }
-    crate::sort::sort_by(&mut grips, |a, b| {
-        b.plane.constant.compare(&a.plane.constant)
-    })?;
+    crate::sort::sort_by(&mut grips, |a, b| b.plane.constant.compare(&a.plane.constant))?;
     Ok(grips)
 }
 

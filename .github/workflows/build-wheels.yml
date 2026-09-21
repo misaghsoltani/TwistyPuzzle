@@ -194,18 +194,16 @@ jobs:
           path: dist
 
       # The project wheel is local, but the optional dependencies are published
-      # by PyPI rather than bundled into our artifact directory. Install those
+      # by PyPI instead of bundled into our artifact directory. Install those
       # separately so the local-only install below still proves that the
       # project itself came from the built wheel.
       - name: Install the test runner and gym dependencies
         run: |
           uv pip install --system pytest
-          uv pip install --system --only-binary :all: \
-            --index-url https://pypi.org/simple/ \
-            "gymnasium>=1.0" "numpy>=2.0"
+          uv pip install --system --only-binary :all: --index-url https://pypi.org/simple/ "gymnasium>=1.0" "numpy>=2.0"
 
       # `--only-binary :all:` ensures the project comes from a wheel in `dist`
-      # rather than silently building the sdist from source.
+      # instead of silently building the sdist from source.
       - name: Install from the built wheel only
         run: |
           uv pip install --system --no-index --only-binary :all: --find-links dist "twistypuzzle[gym]"

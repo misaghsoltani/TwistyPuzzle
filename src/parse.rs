@@ -70,9 +70,7 @@ pub fn eval_expr(x: &Expr) -> Result<AlgebraicNumber> {
         }
         let y = args[1].poly.coeffs[0].clone();
         if args[0].sign()? < 0 && !y.d.is_one() {
-            return Err(Error::Parse(
-                "exponent of negative number must be an integer".into(),
-            ));
+            return Err(Error::Parse("exponent of negative number must be an integer".into()));
         }
         let mut z = power(&base.field, &base, &y.n)?;
         if !y.d.is_one() {
@@ -134,10 +132,7 @@ fn tokenize(s: &str) -> Result<Vec<Token>> {
         }
         if i >= cs.len() {
             // Trailing whitespace alone does not match the sticky pattern.
-            return Err(Error::Parse(format!(
-                "Unexpected character <code>{}</code>",
-                cs[start]
-            )));
+            return Err(Error::Parse(format!("Unexpected character <code>{}</code>", cs[start])));
         }
         let c = cs[i];
         if matches!(c, '+' | '-' | '*' | '/' | '^' | '(' | ')') {
@@ -155,9 +150,9 @@ fn tokenize(s: &str) -> Result<Vec<Token>> {
                 i += 1;
             }
             let int_part: String = cs[b..i].iter().collect();
-            let mut n: i64 = int_part.parse().map_err(|_| {
-                Error::Parse(format!("Number out of range: <code>{int_part}</code>"))
-            })?;
+            let mut n: i64 = int_part
+                .parse()
+                .map_err(|_| Error::Parse(format!("Number out of range: <code>{int_part}</code>")))?;
             let mut d: i64 = 1;
             // Optional fractional part `(\.\d+)`.
             if i < cs.len() && cs[i] == '.' && i + 1 < cs.len() && cs[i + 1].is_ascii_digit() {
@@ -169,15 +164,13 @@ fn tokenize(s: &str) -> Result<Vec<Token>> {
                 let frac: String = cs[fb..i].iter().collect();
                 d = 10i64.pow(frac.len() as u32);
                 n *= d;
-                n += frac.parse::<i64>().map_err(|_| {
-                    Error::Parse(format!("Number out of range: <code>{frac}</code>"))
-                })?;
+                n += frac
+                    .parse::<i64>()
+                    .map_err(|_| Error::Parse(format!("Number out of range: <code>{frac}</code>")))?;
             }
             tokens.push(Token::Num(Fraction::of(n, d)));
         } else {
-            return Err(Error::Parse(format!(
-                "Unexpected character <code>{c}</code>"
-            )));
+            return Err(Error::Parse(format!("Unexpected character <code>{c}</code>")));
         }
         while i < cs.len() && cs[i].is_whitespace() {
             i += 1;
@@ -267,10 +260,7 @@ impl Parser {
                     Ok(Expr::op(&id, vec![]))
                 }
             },
-            t @ Token::Sym(_) => Err(Error::Parse(format!(
-                "Unexpected <code>{}</code>",
-                token_str(&t)
-            ))),
+            t @ Token::Sym(_) => Err(Error::Parse(format!("Unexpected <code>{}</code>", token_str(&t)))),
         }
     }
 
@@ -327,10 +317,7 @@ pub fn parse_shape(s: &str) -> Result<Shape> {
     let d = parse_expr(parts[1])?;
     let head = parts[0];
     // Every comma-separated field is parsed before deciding what the shape is, so a malformed field is an error even for a polyhedron.
-    let coeffs: Vec<Expr> = head
-        .split(',')
-        .map(parse_expr)
-        .collect::<Result<Vec<_>>>()?;
+    let coeffs: Vec<Expr> = head.split(',').map(parse_expr).collect::<Result<Vec<_>>>()?;
     if coeffs.len() == 3 {
         Ok(Shape::Plane {
             a: coeffs[0].clone(),
@@ -356,10 +343,8 @@ fn decode_uri_component(s: &str) -> Result<String> {
             if i + 2 >= bytes.len() {
                 return Err(Error::Parse("URI malformed".into()));
             }
-            let hex = core::str::from_utf8(&bytes[i + 1..i + 3])
-                .map_err(|_| Error::Parse("URI malformed".into()))?;
-            let v =
-                u8::from_str_radix(hex, 16).map_err(|_| Error::Parse("URI malformed".into()))?;
+            let hex = core::str::from_utf8(&bytes[i + 1..i + 3]).map_err(|_| Error::Parse("URI malformed".into()))?;
+            let v = u8::from_str_radix(hex, 16).map_err(|_| Error::Parse("URI malformed".into()))?;
             out.push(v);
             i += 3;
         } else {
@@ -452,9 +437,7 @@ pub fn generate_expr(x: &Expr, prec: i32) -> Result<String> {
         },
         "sqrt" => format!("sqrt({})", generate_expr(&x.args[0], 10)?),
         other => {
-            return Err(Error::Parse(format!(
-                "generateExpr: invalid operation '{other}'"
-            )));
+            return Err(Error::Parse(format!("generateExpr: invalid operation '{other}'")));
         },
     };
     Ok(s)

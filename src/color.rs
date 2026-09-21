@@ -9,7 +9,7 @@ use crate::color_tables::{LINEAR_THRESHOLD, SRGB_TO_LINEAR};
 
 /// The sRGB transfer function, for an 8-bit component.
 ///
-/// Read from a table rather than recomputed, so the value
+/// Read from a table instead of recomputed, so the value
 /// is identical on every platform. See [`crate::color_tables`].
 #[inline]
 pub fn srgb_byte_to_linear(k: u8) -> f64 {
@@ -43,7 +43,7 @@ pub fn linear_to_srgb_byte(c: f64) -> u8 {
 }
 
 /// The inverse transfer function, continuous, for callers that want the
-/// float rather than the quantized byte. Uses the host `powf`, whereas the rendering
+/// float instead of the quantized byte. Uses the host `powf`, whereas the rendering
 /// and `get_hex` paths use [`linear_to_srgb_byte`] instead.
 #[inline]
 pub fn linear_to_srgb(c: f64) -> f64 {
@@ -92,11 +92,7 @@ pub struct Color {
 }
 
 impl Color {
-    pub const BLACK: Color = Color {
-        r: 0.0,
-        g: 0.0,
-        b: 0.0,
-    };
+    pub const BLACK: Color = Color { r: 0.0, g: 0.0, b: 0.0 };
 
     /// From a packed `0xRRGGBB`, interpreted as sRGB.
     pub fn from_hex(hex: u32) -> Color {
@@ -115,11 +111,7 @@ impl Color {
         if s == 0.0 {
             return Color { r: l, g: l, b: l };
         }
-        let p = if l <= 0.5 {
-            l * (1.0 + s)
-        } else {
-            l + s - l * s
-        };
+        let p = if l <= 0.5 { l * (1.0 + s) } else { l + s - l * s };
         let q = 2.0 * l - p;
         Color {
             r: hue2rgb(q, p, h + 1.0 / 3.0),

@@ -4,15 +4,17 @@
 //! with no GPU, display server or browser required, and stays deterministic,
 //! which a GPU pipeline is not.
 //!
-//! The scene's lighting makes that cheap: it is purely ambient, with no
-//! directional light, so every fragment's color is a fixed function of its
-//! vertex color and no shading model is needed at all (`SEMANTICS.md` §7).
-//! What is left is geometry, depth ordering and coverage.
+//! The scene's lighting model reduces per-pixel complexity: lighting is purely
+//! ambient without directional sources, ensuring each fragment's color is a
+//! deterministic function of its vertex color without per-pixel shading
+//! calculations (`SEMANTICS.md` §7). Rendering reduces to geometric projection,
+//! depth sorting, and pixel coverage.
 
 pub mod camera;
 pub mod font;
 mod font_data;
 pub mod framebuffer;
+pub mod lut;
 pub mod png;
 pub mod raster;
 pub mod scene;

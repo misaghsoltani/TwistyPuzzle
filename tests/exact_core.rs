@@ -1,9 +1,7 @@
 //! Unit tests for the exact-arithmetic core: fractions, polynomials,
 //! factorization and algebraic number fields.
 
-use twistypuzzle::exact::{
-    algebraic_number_field, extend, normal, qq_nothing, root, AlgebraicNumber,
-};
+use twistypuzzle::exact::{algebraic_number_field, extend, normal, qq_nothing, root, AlgebraicNumber};
 use twistypuzzle::num::factoring::{combinations_vec, factor};
 use twistypuzzle::num::fraction::Fraction;
 use twistypuzzle::num::int::{Int, Primes};
@@ -54,25 +52,13 @@ fn fraction_to_string_and_number() {
     for &(n, d, s) in cases {
         let f = Fraction::of(n, d);
         assert_eq!(f.to_string(), s, "toString({n}/{d})");
-        assert!(
-            close(f.to_f64_nearest(), n as f64 / d as f64),
-            "toNumber({n}/{d})"
-        );
+        assert!(close(f.to_f64_nearest(), n as f64 / d as f64), "toNumber({n}/{d})");
     }
 }
 
 #[test]
 fn fraction_arithmetic() {
-    let vals: &[(i64, i64)] = &[
-        (-1, 1),
-        (0, 1),
-        (1, 1),
-        (-1, 2),
-        (1, 2),
-        (-2, 3),
-        (2, 3),
-        (3, 4),
-    ];
+    let vals: &[(i64, i64)] = &[(-1, 1), (0, 1), (1, 1), (-1, 2), (1, 2), (-2, 3), (2, 3), (3, 4)];
     for &(an, ad) in vals {
         for &(bn, bd) in vals {
             let (a, b) = (Fraction::of(an, ad), Fraction::of(bn, bd));
@@ -116,14 +102,8 @@ fn integer_and_integer_mod() {
     assert_eq!(Elem::inv(&md(3)).unwrap(), md(7));
     assert!(Elem::inv(&md(2)).is_err());
 
-    assert_eq!(
-        power_mod(&ZZ, &int(2), &Int::from_i64(0), &int(100)).unwrap(),
-        int(1)
-    );
-    assert_eq!(
-        power_mod(&ZZ, &int(2), &Int::from_i64(10), &int(100)).unwrap(),
-        int(24)
-    );
+    assert_eq!(power_mod(&ZZ, &int(2), &Int::from_i64(0), &int(100)).unwrap(), int(1));
+    assert_eq!(power_mod(&ZZ, &int(2), &Int::from_i64(10), &int(100)).unwrap(), int(24));
     assert_eq!(gcd(&ZZ, &int(100), &int(128)).unwrap(), int(4));
 }
 
@@ -151,16 +131,7 @@ fn polynomial_to_string() {
 
 #[test]
 fn polynomial_divmod_and_roots() {
-    let polys: &[&[i64]] = &[
-        &[],
-        &[1],
-        &[-1],
-        &[0, 1],
-        &[1, 1],
-        &[-1, 1],
-        &[0, 2],
-        &[0, 0, 1],
-    ];
+    let polys: &[&[i64]] = &[&[], &[1], &[-1], &[0, 1], &[1, 1], &[-1, 1], &[0, 2], &[0, 0, 1]];
     for a in polys {
         for b in polys {
             let (pa, pb) = (polynomial_i64(a), polynomial_i64(b));
@@ -183,12 +154,8 @@ fn polynomial_divmod_and_roots() {
     let points = [-4i64, -3, -2, -1, 0, 1, 2, 3, 4];
     for i in 0..points.len() {
         for j in i..points.len() {
-            let want = roots
-                .iter()
-                .filter(|&&r| points[i] <= r && r <= points[j])
-                .count() as i32;
-            let got =
-                count_roots(&poly, &Fraction::int(points[i]), &Fraction::int(points[j])).unwrap();
+            let want = roots.iter().filter(|&&r| points[i] <= r && r <= points[j]).count() as i32;
+            let got = count_roots(&poly, &Fraction::int(points[i]), &Fraction::int(points[j])).unwrap();
             assert_eq!(got, want, "count_roots [{},{}]", points[i], points[j]);
         }
     }
@@ -219,9 +186,7 @@ fn factor_matches_reference() {
     let cases: &[(&[i64], &[&[i64]])] = &[
         (&[2, 3, 1], &[&[1, 1], &[2, 1]]),
         (
-            &[
-                112, 368, 681, 933, 1395, 1692, 1775, 1482, 1335, 959, 577, 156, 135,
-            ],
+            &[112, 368, 681, 933, 1395, 1692, 1775, 1482, 1335, 959, 577, 156, 135],
             &[&[4, 9, 8, 1, 3], &[4, 3, 1, 3, 5], &[7, 2, 9, 2, 9]],
         ),
         (
@@ -229,9 +194,7 @@ fn factor_matches_reference() {
             &[&[1, 1, 4, 0, 1], &[7, 9, 7, 5, 9]],
         ),
         (
-            &[
-                105, 263, 731, 1252, 1878, 2395, 2487, 2186, 1615, 954, 382, 96, 8,
-            ],
+            &[105, 263, 731, 1252, 1878, 2395, 2487, 2186, 1615, 954, 382, 96, 8],
             &[&[7, 4, 6, 8, 1], &[3, 4, 9, 5, 2], &[5, 3, 6, 6, 4]],
         ),
     ];
@@ -241,10 +204,7 @@ fn factor_matches_reference() {
             .iter()
             .map(ToString::to_string)
             .collect();
-        let mut expect: Vec<String> = want
-            .iter()
-            .map(|cs| polynomial_i64(cs).to_string())
-            .collect();
+        let mut expect: Vec<String> = want.iter().map(|cs| polynomial_i64(cs).to_string()).collect();
         got.sort();
         expect.sort();
         assert_eq!(got, expect, "factor({coeffs:?})");
@@ -267,21 +227,11 @@ fn algebraic_number_arithmetic() {
     let vals: Vec<(Vec<Fraction>, f64)> = vec![
         (vec![Fraction::int(0); 4], 0.0),
         (
-            vec![
-                Fraction::int(1),
-                Fraction::int(0),
-                Fraction::int(0),
-                Fraction::int(0),
-            ],
+            vec![Fraction::int(1), Fraction::int(0), Fraction::int(0), Fraction::int(0)],
             1.0,
         ),
         (
-            vec![
-                Fraction::int(-1),
-                Fraction::int(0),
-                Fraction::int(0),
-                Fraction::int(0),
-            ],
+            vec![Fraction::int(-1), Fraction::int(0), Fraction::int(0), Fraction::int(0)],
             -1.0,
         ),
         (
@@ -314,40 +264,20 @@ fn algebraic_number_arithmetic() {
     ];
     for (c, want) in &vals {
         let x = k.from_vector(c.clone()).unwrap();
-        assert!(
-            close(x.to_number().unwrap(), *want),
-            "toNumber {} != {}",
-            x.poly,
-            want
-        );
-        assert_eq!(
-            x.sign().unwrap(),
-            want.partial_cmp(&0.0).map(|o| o as i32).unwrap()
-        );
+        assert!(close(x.to_number().unwrap(), *want), "toNumber {} != {}", x.poly, want);
+        assert_eq!(x.sign().unwrap(), want.partial_cmp(&0.0).map(|o| o as i32).unwrap());
     }
     for (ac, av) in &vals {
         for (bc, bv) in &vals {
             let a = k.from_vector(ac.clone()).unwrap();
             let b = k.from_vector(bc.clone()).unwrap();
-            assert!(close(
-                Elem::add(&a, &b).unwrap().to_number().unwrap(),
-                av + bv
-            ));
-            assert!(close(
-                Elem::sub(&a, &b).unwrap().to_number().unwrap(),
-                av - bv
-            ));
-            assert!(close(
-                Elem::mul(&a, &b).unwrap().to_number().unwrap(),
-                av * bv
-            ));
+            assert!(close(Elem::add(&a, &b).unwrap().to_number().unwrap(), av + bv));
+            assert!(close(Elem::sub(&a, &b).unwrap().to_number().unwrap(), av - bv));
+            assert!(close(Elem::mul(&a, &b).unwrap().to_number().unwrap(), av * bv));
             if b.is_zero() {
                 assert!(Elem::div(&a, &b).is_err());
             } else {
-                assert!(close(
-                    Elem::div(&a, &b).unwrap().to_number().unwrap(),
-                    av / bv
-                ));
+                assert!(close(Elem::div(&a, &b).unwrap().to_number().unwrap(), av / bv));
             }
         }
     }
@@ -372,10 +302,7 @@ fn normal_of_x_squared_minus_sqrt2() {
             k.from_vector_i64(&[1]).unwrap(),
         ],
     );
-    assert!(Elem::equals(
-        &normal(&p).unwrap(),
-        &polynomial_i64(&[-2, 0, 0, 0, 1])
-    ));
+    assert!(Elem::equals(&normal(&p).unwrap(), &polynomial_i64(&[-2, 0, 0, 0, 1])));
 }
 
 #[test]
@@ -412,15 +339,9 @@ fn extend_covers_every_pair() {
         for qb in &fields {
             let (qg, alpha, beta) = extend(qa, qb).unwrap();
             // Each primitive element must be a root of its own minimal polynomial.
-            let pa = qa
-                .poly()
-                .map(qg.clone(), |c| qg.from_vector(vec![c.clone()]))
-                .unwrap();
+            let pa = qa.poly().map(qg.clone(), |c| qg.from_vector(vec![c.clone()])).unwrap();
             assert!(pa.eval(&alpha).unwrap().is_zero(), "alpha is not a root");
-            let pb = qb
-                .poly()
-                .map(qg.clone(), |c| qg.from_vector(vec![c.clone()]))
-                .unwrap();
+            let pb = qb.poly().map(qg.clone(), |c| qg.from_vector(vec![c.clone()])).unwrap();
             assert!(pb.eval(&beta).unwrap().is_zero(), "beta is not a root");
         }
     }
@@ -484,11 +405,7 @@ fn precise_conversion_is_correctly_rounded() {
         (1, 1_000_003),
     ] {
         let f = Fraction::new(Int::from_i64(n), Int::from_i64(d), true).unwrap();
-        assert_eq!(
-            f.to_f64_nearest(),
-            n as f64 / d as f64,
-            "{n}/{d} rounded wrong"
-        );
+        assert_eq!(f.to_f64_nearest(), n as f64 / d as f64, "{n}/{d} rounded wrong");
     }
 
     // Algebraic numbers, against the platform's own libm. These agree to the
@@ -521,10 +438,7 @@ fn precise_conversion_is_correctly_rounded() {
     assert_eq!(bounds_before.1.to_string(), bounds_after.1.to_string());
 
     // Exact zero stays exact, and the cheap routine stays truncating.
-    let zero = twistypuzzle::parse::eval_expr(
-        &twistypuzzle::parse::parse_expr("sqrt(2)-sqrt(2)").unwrap(),
-    )
-    .unwrap();
+    let zero = twistypuzzle::parse::eval_expr(&twistypuzzle::parse::parse_expr("sqrt(2)-sqrt(2)").unwrap()).unwrap();
     assert_eq!(zero.to_number().unwrap(), 0.0);
     assert_eq!(
         Fraction::new(Int::from_i64(1), Int::from_i64(3), true)

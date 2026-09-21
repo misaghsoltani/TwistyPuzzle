@@ -4,8 +4,8 @@
 //! The glyphs are drawn in `tools/gen_font.py` and packed into
 //! [`font_data`](super::font_data). Each occupies a cell nine rows tall: rows
 //! 0-6 carry the cap height and rows 7-8 the descenders, with the baseline
-//! directly under row 6. Widths vary per glyph (`i` is one column and `M` is
-//! five), which reads far better at label sizes than a fixed pitch.
+//! directly under row 6. Widths vary per glyph (`i` is one column wide and `M` is
+//! five columns wide), improving legibility at label sizes compared to a fixed pitch.
 //!
 //! Text is drawn at an integer `scale`. For smooth edges, draw into a
 //! framebuffer at two or three times the final size and
@@ -72,10 +72,7 @@ pub fn text_width(text: &str, scale: u32) -> u32 {
 
 /// Width of the widest line in `text`, in pixels.
 pub fn text_block_width(text: &str, scale: u32) -> u32 {
-    text.split('\n')
-        .map(|l| text_width(l, scale))
-        .max()
-        .unwrap_or(0)
+    text.split('\n').map(|l| text_width(l, scale)).max().unwrap_or(0)
 }
 
 /// Height of `text` in pixels, counting its newlines.
@@ -89,15 +86,7 @@ impl Framebuffer {
     ///
     /// `scale` magnifies each ink column into a `scale`x`scale` block. Returns
     /// the width of the text drawn, so captions can be chained.
-    pub fn draw_text(
-        &mut self,
-        x: i64,
-        y: i64,
-        text: &str,
-        rgba: [u8; 4],
-        scale: u32,
-        mode: BlendMode,
-    ) -> u32 {
+    pub fn draw_text(&mut self, x: i64, y: i64, text: &str, rgba: [u8; 4], scale: u32, mode: BlendMode) -> u32 {
         if scale == 0 {
             return 0;
         }

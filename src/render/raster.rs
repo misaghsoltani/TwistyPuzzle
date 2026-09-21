@@ -101,12 +101,36 @@ pub struct RenderTarget {
     pub depth: Vec<f32>,
 }
 
+impl Default for RenderTarget {
+    fn default() -> RenderTarget {
+        RenderTarget::new(0, 0)
+    }
+}
+
 impl RenderTarget {
     pub fn new(width: u32, height: u32) -> RenderTarget {
         RenderTarget {
             color: Framebuffer::new(width, height),
             depth: vec![f32::INFINITY; width as usize * height as usize],
         }
+    }
+
+    /// Make this the given size, keeping the buffers when they already are.
+    ///
+    /// The contents are not preserved and are not cleared either: every caller
+    /// clears to a background immediately afterward, and zeroing first would
+    /// be writing the whole surface twice.
+    pub(crate) fn resize(&mut self, width: u32, height: u32) {
+        if self.width() == width && self.height() == height {
+            return;
+        }
+        self.color.resize(width, height);
+        self.depth.resize(width as usize * height as usize, f32::INFINITY);
+    }
+
+    /// Bytes held by the two buffers.
+    pub fn capacity(&self) -> usize {
+        self.color.capacity() + self.depth.capacity() * 4
     }
 
     pub fn clear(&mut self, rgba: [u8; 4]) {
@@ -231,7 +255,36 @@ fn bbox(t: &ScreenTri, width: u32, height: u32) -> Option<(u32, u32, u32, u32)> 
 }
 
 /// Rasterize `calls` into `target`, in order.
+/// The working lists a [`draw`] builds, kept so a second call can refill them
+/// instead of allocating them again.
+///
+/// A frame's triangles, its per-call render states and one index list per
+/// horizontal band: a 2560-row surface has eighty bands, so eighty vectors are
+/// grown from nothing on every call that does not reuse these.
+#[derive(Default)]
+pub struct DrawScratch {
+    states: Vec<TriState>,
+    tris: Vec<ScreenTri>,
+    clip: Vec<[[f64; 3]; 3]>,
+    bins: Vec<Vec<u32>>,
+}
+
+impl DrawScratch {
+    /// Bytes held by the working lists.
+    pub fn capacity(&self) -> usize {
+        self.states.capacity() * size_of::<TriState>()
+            + self.tris.capacity() * size_of::<ScreenTri>()
+            + self.clip.capacity() * size_of::<[[f64; 3]; 3]>()
+            + self.bins.iter().map(|b| b.capacity() * 4).sum::<usize>()
+    }
+}
+
 pub fn draw(target: &mut RenderTarget, calls: &[DrawCall<'_>], view_projection: &Mat4) {
+    draw_with(&mut DrawScratch::default(), target, calls, view_projection);
+}
+
+/// [`draw`], reusing the caller's working lists.
+pub fn draw_with(work: &mut DrawScratch, target: &mut RenderTarget, calls: &[DrawCall<'_>], view_projection: &Mat4) {
     let width = target.width();
     let height = target.height();
     if width == 0 || height == 0 || calls.is_empty() {
@@ -239,30 +292,33 @@ pub fn draw(target: &mut RenderTarget, calls: &[DrawCall<'_>], view_projection: 
     }
     let (wf, hf) = (f64::from(width), f64::from(height));
 
-    let states: Vec<TriState> = calls
-        .iter()
-        .map(|c| TriState {
-            blend: c.blend,
-            depth_write: c.depth_write,
-            depth_test: c.depth_test,
-            polygon_offset: c.polygon_offset,
-        })
-        .collect();
+    let DrawScratch {
+        states,
+        tris,
+        clip: scratch,
+        bins,
+    } = work;
+    states.clear();
+    states.extend(calls.iter().map(|c| TriState {
+        blend: c.blend,
+        depth_write: c.depth_write,
+        depth_test: c.depth_test,
+        polygon_offset: c.polygon_offset,
+    }));
 
     // 1. Transform every primitive to screen space.
-    let mut tris: Vec<ScreenTri> = Vec::new();
-    let mut scratch: Vec<[[f64; 3]; 3]> = Vec::new();
+    tris.clear();
     for (call_index, call) in calls.iter().enumerate() {
         let mvp = view_projection.mul(&call.model);
         let state = call_index as u32;
 
         for (ti, tri) in call.triangles.iter().enumerate() {
             scratch.clear();
-            clip_near(&mvp, tri, wf, hf, &mut scratch);
+            clip_near(&mvp, tri, wf, hf, scratch);
             let color = call.colors.get(ti).copied().unwrap_or([255, 255, 255, 255]);
-            for v in &scratch {
+            for v in scratch.iter() {
                 let area = edge(v[0], v[1], v[2]);
-                // Screen y points down, so a counter-clockwise winding in world
+                // Screen y points down, so a counterclockwise winding in world
                 // space gives a negative signed area here.
                 let keep = match call.cull {
                     Cull::Back => area < 0.0,
@@ -270,11 +326,7 @@ pub fn draw(target: &mut RenderTarget, calls: &[DrawCall<'_>], view_projection: 
                     Cull::None => area != 0.0,
                 };
                 if keep {
-                    tris.push(ScreenTri {
-                        v: *v,
-                        color,
-                        state,
-                    });
+                    tris.push(ScreenTri { v: *v, color, state });
                 }
             }
         }
@@ -283,9 +335,7 @@ pub fn draw(target: &mut RenderTarget, calls: &[DrawCall<'_>], view_projection: 
         if !call.lines.is_empty() {
             let hw = call.line_width * 0.5;
             for seg in call.lines {
-                let (Some(a), Some(b)) =
-                    (project(&mvp, seg[0], wf, hf), project(&mvp, seg[1], wf, hf))
-                else {
+                let (Some(a), Some(b)) = (project(&mvp, seg[0], wf, hf), project(&mvp, seg[1], wf, hf)) else {
                     continue;
                 };
                 let (dx, dy) = (b[0] - a[0], b[1] - a[1]);
@@ -316,8 +366,12 @@ pub fn draw(target: &mut RenderTarget, calls: &[DrawCall<'_>], view_projection: 
 
     // 2. Bin into horizontal bands. Bands are disjoint row ranges, so they
     // can be handed to `par_chunks_mut` and rasterized without any sharing.
-    let bands = height.div_ceil(BAND);
-    let mut bins: Vec<Vec<u32>> = vec![Vec::new(); bands as usize];
+    let bands = height.div_ceil(BAND) as usize;
+    bins.truncate(bands);
+    bins.resize_with(bands, Vec::new);
+    for b in bins.iter_mut() {
+        b.clear();
+    }
     for (i, t) in tris.iter().enumerate() {
         let Some((_, miny, _, maxy)) = bbox(t, width, height) else {
             continue;
@@ -345,16 +399,7 @@ pub fn draw(target: &mut RenderTarget, calls: &[DrawCall<'_>], view_projection: 
             let y1 = (y0 + BAND).min(height);
             for &ti in list {
                 let t = &tris[ti as usize];
-                raster_tri(
-                    t,
-                    &states[t.state as usize],
-                    y0,
-                    y1,
-                    width,
-                    height,
-                    depth,
-                    color,
-                );
+                raster_tri(t, &states[t.state as usize], y0, y1, width, height, depth, color);
             }
         });
 }
@@ -415,7 +460,7 @@ fn raster_tri(
     };
 
     // Edge functions are affine in the pixel center, so step them incrementally
-    // rather than recomputing three cross products per pixel.
+    // instead of recomputing three cross products per pixel.
     let px0 = f64::from(x0) + 0.5;
     let py0 = f64::from(y0) + 0.5;
     let p0 = [px0, py0, 0.0];

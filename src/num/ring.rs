@@ -71,9 +71,7 @@ impl Integer {
         Integer { n }
     }
     pub fn from_i64(n: i64) -> Integer {
-        Integer {
-            n: Int::from_i64(n),
-        }
+        Integer { n: Int::from_i64(n) }
     }
     pub fn to_number(&self) -> f64 {
         self.n.to_f64()
@@ -107,18 +105,14 @@ impl Elem for Integer {
         Ok(())
     }
     fn add(&self, y: &Integer) -> Result<Integer> {
-        Ok(Integer {
-            n: self.n.add(&y.n),
-        })
+        Ok(Integer { n: self.n.add(&y.n) })
     }
     fn isub(&mut self, y: &Integer) -> Result<()> {
         self.n = self.n.sub(&y.n);
         Ok(())
     }
     fn sub(&self, y: &Integer) -> Result<Integer> {
-        Ok(Integer {
-            n: self.n.sub(&y.n),
-        })
+        Ok(Integer { n: self.n.sub(&y.n) })
     }
     fn neg(&self) -> Integer {
         Integer { n: self.n.neg() }
@@ -128,23 +122,19 @@ impl Elem for Integer {
         Ok(())
     }
     fn mul(&self, y: &Integer) -> Result<Integer> {
-        Ok(Integer {
-            n: self.n.mul(&y.n),
-        })
+        Ok(Integer { n: self.n.mul(&y.n) })
     }
     fn inv(&self) -> Result<Integer> {
         if self.n.eq(&Int::from_i64(1)) || self.n.eq(&Int::from_i64(-1)) {
             Ok(self.clone())
         } else {
-            Err(Error::Division(
-                "Multiplicative inverse does not exist".into(),
-            ))
+            Err(Error::Division("Multiplicative inverse does not exist".into()))
         }
     }
     fn idiv(&mut self, y: &Integer) -> Result<()> {
         if y.n.is_zero() {
             // The range check comes before the divisibility test, so a zero
-            // modulus is reported as a range error rather than a division one.
+            // modulus is reported as a range error instead of a division error.
             return Err(Error::Range("Division by zero".into()));
         }
         if self.n.rem(&y.n).is_zero() {
@@ -311,9 +301,7 @@ impl Elem for IntegerMod {
         if r.is_one() {
             Ok(IntegerMod::new(s, self.m.clone()))
         } else {
-            Err(Error::Division(
-                "Multiplicative inverse does not exist".into(),
-            ))
+            Err(Error::Division("Multiplicative inverse does not exist".into()))
         }
     }
 }

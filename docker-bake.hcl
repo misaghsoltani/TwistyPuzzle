@@ -11,10 +11,10 @@
 #
 # Every target ends in a command that fails the build when the thing it checks
 # is wrong, so a target that builds is a target that passed. Nothing is pushed
-# and nothing is tagged; these are tests that happen to be Dockerfiles.
+# and nothing is tagged. These are tests that happen to be Dockerfiles.
 
 variable "RUST_VERSION" { default = "stable" }
-# The Debian `rust` images are tagged by version rather than by channel, so
+# The Debian `rust` images are tagged by version instead of by channel, so
 # the desktop build cannot reuse RUST_VERSION's "stable".
 variable "RUST_IMAGE_VERSION" { default = "1" }
 variable "MSRV" { default = "1.85.0" }
@@ -24,11 +24,8 @@ variable "UV_VERSION" { default = "0.9.9" }
 variable "MANYLINUX" { default = "quay.io/pypa/manylinux_2_28" }
 variable "MUSLLINUX" { default = "quay.io/pypa/musllinux_1_2" }
 
-# This file lives at the repository root rather than beside the Dockerfiles in
-# `docker/`. A bake file whose context escapes its own directory trips
-# buildx's filesystem entitlement check and needs `--allow=fs.read=..` at every
-# call site; keeping it here makes the context plainly `.` and the command
-# plain `docker buildx bake`.
+# Located at repository root to keep the build context rooted at `.`,
+# avoiding the need for extended filesystem permissions (`--allow=fs.read=..`).
 
 target "_common" {
   context    = "."
@@ -81,10 +78,10 @@ target "musllinux-aarch64" {
 # The architectures release.yml publishes for but no runner and no developer
 # laptop can execute. They are correct here and ruinously slow: QEMU plus
 # `lto = "fat"` and `codegen-units = 1` is hours, not minutes. Deliberately
-# outside the `ci` group -- run them before a release, not on every push.
+# outside the `ci` group: run them before a release, not on every push.
 #
 # `BIGINT_ONLY=0` on the emulated wheel targets does not apply (that argument
-# belongs to `rust-test`); the cost here is the release profile itself.
+# belongs to `rust-test`). The cost here is the release profile itself.
 # --------------------------------------------------------------------------
 
 target "manylinux-armv7" {
@@ -92,7 +89,7 @@ target "manylinux-armv7" {
   target   = "test"
   # Not `${MANYLINUX}`: armv7 has no manylinux_2_28 image. The architecture was
   # only ever given a glibc 2.31 floor, so this is the oldest tag that exists
-  # for it rather than an inconsistency.
+  # for it instead of an inconsistency.
   args      = { BASE_IMAGE = "quay.io/pypa/manylinux_2_31_armv7l:latest" }
   platforms = ["linux/arm/v7"]
 }
@@ -195,8 +192,7 @@ group "ci-arm64" {
   ]
 }
 
-# Whatever the machine you are sitting at can run without emulation. On an
-# Apple Silicon laptop this is the arm64 half and it is genuinely fast.
+# Host-native targets that execute without QEMU emulation.
 group "native" {
   targets = ["manylinux-aarch64", "musllinux-aarch64"]
 }

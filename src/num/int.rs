@@ -8,7 +8,7 @@
 //! the dividend, whichever is in use.
 //!
 //! Building with the `bigint-only` feature disables the fast path entirely, so
-//! the test suite can prove that claim rather than assert it.
+//! the test suite can prove that claim instead of asserting it.
 
 use core::cmp::Ordering;
 use core::fmt;
@@ -24,7 +24,7 @@ use num_traits::{One, Signed, ToPrimitive, Zero};
 /// The wide variant is behind an [`Arc`] for two reasons. It keeps the enum at
 /// two words instead of five, which matters because `Fraction` holds two of
 /// these and polynomials hold vectors of `Fraction`, and it makes cloning a
-/// wide value a reference-count bump rather than a copy of its digits.
+/// wide value a reference-count bump instead of copying its digits.
 /// Sharing is safe without any copy-on-write dance because `Int` is immutable:
 /// every operation here returns a new value and none mutates in place.
 #[derive(Clone, Debug)]
@@ -100,7 +100,7 @@ impl Int {
 
     /// The value as a `BigInt`, borrowed when it already is one.
     ///
-    /// Every wide operation below goes through this rather than
+    /// Every wide operation below goes through this instead of
     /// [`to_bigint`](Self::to_bigint), so promoting an inline value costs one
     /// allocation and an already-wide value costs none.
     #[inline]

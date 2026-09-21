@@ -6,8 +6,8 @@
 # costs that transfer on every single build, across every platform in the
 # matrix, before any compilation starts.
 
-# Build output. The container compiles from scratch against its own toolchain;
-# a host `target/` is the wrong architecture and would only be overwritten.
+# Build output. The container compiles from scratch against its own toolchain.
+# A host `target/` is the wrong architecture and would only be overwritten.
 target/
 **/target/
 

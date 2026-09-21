@@ -49,7 +49,7 @@ def test_importing_the_package_does_not_import_the_optional_extras() -> None:
 
 
 def test_the_package_is_usable_with_the_extras_unimportable() -> None:
-    """Not just unimported, but unimportable.
+    """Verify package behavior when optional dependencies cannot be imported.
 
     Blocking the modules outright is the difference between "we happen not to
     import it at module scope" and "a user without the extra can build and turn
@@ -87,7 +87,7 @@ def test_the_gym_subpackage_is_not_imported_by_the_package() -> None:
 def test_the_gym_extra_names_its_own_dependencies() -> None:
     """Whatever `[gym]` resolves to must include gymnasium.
 
-    Read from the installed metadata rather than from pyproject.toml, so this
+    Read from the installed metadata instead of from pyproject.toml, so this
     tests the wheel a user receives and not a file that only exists in a
     checkout.
     """
@@ -95,7 +95,7 @@ def test_the_gym_extra_names_its_own_dependencies() -> None:
 
     requires = metadata("twistypuzzle").get_all("Requires-Dist") or []
     gym_requirements = [r for r in requires if "extra ==" in r and "gym" in r]
-    assert gym_requirements, f"no extra declares any dependency; got {requires}"
+    assert gym_requirements, f"no extra declares any dependency, got {requires}"
     assert any("gymnasium" in r for r in gym_requirements), (
         f"the gym extra does not bring gymnasium: {gym_requirements}"
     )

@@ -10,12 +10,12 @@ CUBE: str = "Rubik's Cube (3x3x3)"
 JUMBLER: str = "?shell=I$1&cut=I$1/3"  # a face-turning icosahedron: it jumbles
 
 
-def test_a_three_by_three_reads_exactly_like_deepxubes_cube3() -> None:
+def test_a_three_by_three_reads_the_way_a_cube_is_usually_read() -> None:
     p = tp.Puzzle(CUBE)
     assert p.sticker_count == 54
     assert p.color_count == 6
     assert p.action_count == 12
-    # DeepXube's `goal_colors = (arange(54) // 9).astype(uint8)`, value for value.
+    # The goal array cubes are usually written with: `arange(54) // 9`.
     assert p.solved_stickers == [i // 9 for i in range(54)]
     assert p.stickers() == p.solved_stickers
     assert p.is_solved

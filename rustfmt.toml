@@ -2,7 +2,7 @@
 # Reference: https://rust-lang.github.io/rustfmt/
 
 edition = "2021"
-max_width = 100
+max_width = 120
 hard_tabs = false
 tab_spaces = 4
 newline_style = "Unix"

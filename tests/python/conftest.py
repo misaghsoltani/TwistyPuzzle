@@ -1,9 +1,8 @@
 """Collection rules for the parts of the suite that need an optional extra.
 
 The package installs nothing but itself. Gymnasium and NumPy arrive only with
-``twistypuzzle[gym]``, so an environment that has the wheel and nothing else is
-a supported environment and has to produce a passing run rather than a
-collection error.
+``twistypuzzle[gym]``, so an environment that has the wheel and nothing else is a
+supported environment and has to produce a passing run instead of a collection error.
 
 ``test_gym.py`` imports ``gymnasium`` at module scope, which is correct, as it
 is a test *of* the extra and there is nothing meaningful to test without it.

@@ -25,14 +25,12 @@ pub struct CatalogEntry {
 
 /// Every cataloged puzzle, in catalog order.
 pub fn entries() -> impl Iterator<Item = CatalogEntry> {
-    CATALOG
-        .iter()
-        .map(|&(name, family, kind, recipe)| CatalogEntry {
-            name,
-            family,
-            kind,
-            recipe,
-        })
+    CATALOG.iter().map(|&(name, family, kind, recipe)| CatalogEntry {
+        name,
+        family,
+        kind,
+        recipe,
+    })
 }
 
 /// Look up a puzzle by name, case-insensitively.

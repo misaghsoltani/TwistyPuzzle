@@ -30,10 +30,8 @@ impl Mat4 {
         let mut e = [0.0f64; 16];
         for c in 0..4 {
             for r in 0..4 {
-                e[c * 4 + r] = a[r] * bb[c * 4]
-                    + a[4 + r] * bb[c * 4 + 1]
-                    + a[8 + r] * bb[c * 4 + 2]
-                    + a[12 + r] * bb[c * 4 + 3];
+                e[c * 4 + r] =
+                    a[r] * bb[c * 4] + a[4 + r] * bb[c * 4 + 1] + a[8 + r] * bb[c * 4 + 2] + a[12 + r] * bb[c * 4 + 3];
             }
         }
         Mat4 { e }
@@ -83,7 +81,7 @@ impl Mat4 {
 
     /// General inverse, by cofactor expansion.
     ///
-    /// Returns the zero matrix for a singular input rather than erroring.
+    /// Returns the zero matrix for a singular input instead of erroring.
     pub fn invert(&self) -> Mat4 {
         let m = &self.e;
         let (n11, n21, n31, n41) = (m[0], m[1], m[2], m[3]);
@@ -92,17 +90,13 @@ impl Mat4 {
         let (n14, n24, n34, n44) = (m[12], m[13], m[14], m[15]);
 
         let t11 =
-            n23 * n34 * n42 - n24 * n33 * n42 + n24 * n32 * n43 - n22 * n34 * n43 - n23 * n32 * n44
-                + n22 * n33 * n44;
+            n23 * n34 * n42 - n24 * n33 * n42 + n24 * n32 * n43 - n22 * n34 * n43 - n23 * n32 * n44 + n22 * n33 * n44;
         let t12 =
-            n14 * n33 * n42 - n13 * n34 * n42 - n14 * n32 * n43 + n12 * n34 * n43 + n13 * n32 * n44
-                - n12 * n33 * n44;
+            n14 * n33 * n42 - n13 * n34 * n42 - n14 * n32 * n43 + n12 * n34 * n43 + n13 * n32 * n44 - n12 * n33 * n44;
         let t13 =
-            n13 * n24 * n42 - n14 * n23 * n42 + n14 * n22 * n43 - n12 * n24 * n43 - n13 * n22 * n44
-                + n12 * n23 * n44;
+            n13 * n24 * n42 - n14 * n23 * n42 + n14 * n22 * n43 - n12 * n24 * n43 - n13 * n22 * n44 + n12 * n23 * n44;
         let t14 =
-            n14 * n23 * n32 - n13 * n24 * n32 - n14 * n22 * n33 + n12 * n24 * n33 + n13 * n22 * n34
-                - n12 * n23 * n34;
+            n14 * n23 * n32 - n13 * n24 * n32 - n14 * n22 * n33 + n12 * n24 * n33 + n13 * n22 * n34 - n12 * n23 * n34;
 
         let det = n11 * t11 + n21 * t12 + n31 * t13 + n41 * t14;
         if det == 0.0 {
@@ -111,67 +105,43 @@ impl Mat4 {
         let d = 1.0 / det;
         let mut e = [0.0f64; 16];
         e[0] = t11 * d;
-        e[1] = (n24 * n33 * n41 - n23 * n34 * n41 - n24 * n31 * n43
-            + n21 * n34 * n43
-            + n23 * n31 * n44
+        e[1] = (n24 * n33 * n41 - n23 * n34 * n41 - n24 * n31 * n43 + n21 * n34 * n43 + n23 * n31 * n44
             - n21 * n33 * n44)
             * d;
-        e[2] = (n22 * n34 * n41 - n24 * n32 * n41 + n24 * n31 * n42
-            - n21 * n34 * n42
-            - n22 * n31 * n44
+        e[2] = (n22 * n34 * n41 - n24 * n32 * n41 + n24 * n31 * n42 - n21 * n34 * n42 - n22 * n31 * n44
             + n21 * n32 * n44)
             * d;
-        e[3] = (n23 * n32 * n41 - n22 * n33 * n41 - n23 * n31 * n42
-            + n21 * n33 * n42
-            + n22 * n31 * n43
+        e[3] = (n23 * n32 * n41 - n22 * n33 * n41 - n23 * n31 * n42 + n21 * n33 * n42 + n22 * n31 * n43
             - n21 * n32 * n43)
             * d;
         e[4] = t12 * d;
-        e[5] = (n13 * n34 * n41 - n14 * n33 * n41 + n14 * n31 * n43
-            - n11 * n34 * n43
-            - n13 * n31 * n44
+        e[5] = (n13 * n34 * n41 - n14 * n33 * n41 + n14 * n31 * n43 - n11 * n34 * n43 - n13 * n31 * n44
             + n11 * n33 * n44)
             * d;
-        e[6] = (n14 * n32 * n41 - n12 * n34 * n41 - n14 * n31 * n42
-            + n11 * n34 * n42
-            + n12 * n31 * n44
+        e[6] = (n14 * n32 * n41 - n12 * n34 * n41 - n14 * n31 * n42 + n11 * n34 * n42 + n12 * n31 * n44
             - n11 * n32 * n44)
             * d;
-        e[7] = (n12 * n33 * n41 - n13 * n32 * n41 + n13 * n31 * n42
-            - n11 * n33 * n42
-            - n12 * n31 * n43
+        e[7] = (n12 * n33 * n41 - n13 * n32 * n41 + n13 * n31 * n42 - n11 * n33 * n42 - n12 * n31 * n43
             + n11 * n32 * n43)
             * d;
         e[8] = t13 * d;
-        e[9] = (n14 * n23 * n41 - n13 * n24 * n41 - n14 * n21 * n43
-            + n11 * n24 * n43
-            + n13 * n21 * n44
+        e[9] = (n14 * n23 * n41 - n13 * n24 * n41 - n14 * n21 * n43 + n11 * n24 * n43 + n13 * n21 * n44
             - n11 * n23 * n44)
             * d;
-        e[10] = (n12 * n24 * n41 - n14 * n22 * n41 + n14 * n21 * n42
-            - n11 * n24 * n42
-            - n12 * n21 * n44
+        e[10] = (n12 * n24 * n41 - n14 * n22 * n41 + n14 * n21 * n42 - n11 * n24 * n42 - n12 * n21 * n44
             + n11 * n22 * n44)
             * d;
-        e[11] = (n13 * n22 * n41 - n12 * n23 * n41 - n13 * n21 * n42
-            + n11 * n23 * n42
-            + n12 * n21 * n43
+        e[11] = (n13 * n22 * n41 - n12 * n23 * n41 - n13 * n21 * n42 + n11 * n23 * n42 + n12 * n21 * n43
             - n11 * n22 * n43)
             * d;
         e[12] = t14 * d;
-        e[13] = (n13 * n24 * n31 - n14 * n23 * n31 + n14 * n21 * n33
-            - n11 * n24 * n33
-            - n13 * n21 * n34
+        e[13] = (n13 * n24 * n31 - n14 * n23 * n31 + n14 * n21 * n33 - n11 * n24 * n33 - n13 * n21 * n34
             + n11 * n23 * n34)
             * d;
-        e[14] = (n14 * n22 * n31 - n12 * n24 * n31 - n14 * n21 * n32
-            + n11 * n24 * n32
-            + n12 * n21 * n34
+        e[14] = (n14 * n22 * n31 - n12 * n24 * n31 - n14 * n21 * n32 + n11 * n24 * n32 + n12 * n21 * n34
             - n11 * n22 * n34)
             * d;
-        e[15] = (n12 * n23 * n31 - n13 * n22 * n31 + n13 * n21 * n32
-            - n11 * n23 * n32
-            - n12 * n21 * n33
+        e[15] = (n12 * n23 * n31 - n13 * n22 * n31 + n13 * n21 * n32 - n11 * n23 * n32 - n12 * n21 * n33
             + n11 * n22 * n33)
             * d;
         Mat4 { e }
@@ -187,16 +157,14 @@ impl Mat4 {
         let c = -(far + near) / (far - near);
         let d = -2.0 * far * near / (far - near);
         Mat4 {
-            e: [
-                x, 0.0, 0.0, 0.0, 0.0, y, 0.0, 0.0, a, b, c, -1.0, 0.0, 0.0, d, 0.0,
-            ],
+            e: [x, 0.0, 0.0, 0.0, 0.0, y, 0.0, 0.0, a, b, c, -1.0, 0.0, 0.0, d, 0.0],
         }
     }
 
     /// The world-to-camera matrix for an eye looking at `target`.
     ///
     /// This is the inverse of the camera's world matrix, built directly from
-    /// the orthonormal basis rather than by composing and inverting.
+    /// the orthonormal basis instead of composing and inverting.
     pub fn look_at_view(eye: Vec3, target: Vec3, up: Vec3) -> Mat4 {
         let mut z = eye.sub(&target);
         if z.dot(&z) == 0.0 {

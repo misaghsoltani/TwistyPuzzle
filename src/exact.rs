@@ -79,9 +79,7 @@ impl AlgebraicNumberField {
         }
 
         if count_roots(&poly, &lower, &upper)? != 1 {
-            return Err(Error::Other(
-                "Interval must contain exactly one root".into(),
-            ));
+            return Err(Error::Other("Interval must contain exactly one root".into()));
         }
 
         let inner = FieldInner {
@@ -215,12 +213,10 @@ impl RingOps<AlgebraicNumber> for AlgebraicNumberField {
         AlgebraicNumber::new(self.clone(), polynomial(vec![])).expect("zero is always reducible")
     }
     fn one(&self) -> AlgebraicNumber {
-        AlgebraicNumber::new(self.clone(), polynomial(vec![Fraction::int(1)]))
-            .expect("one is always reducible")
+        AlgebraicNumber::new(self.clone(), polynomial(vec![Fraction::int(1)])).expect("one is always reducible")
     }
     fn from_int(&self, n: i64) -> AlgebraicNumber {
-        AlgebraicNumber::new(self.clone(), polynomial(vec![Fraction::int(n)]))
-            .expect("a constant is always reducible")
+        AlgebraicNumber::new(self.clone(), polynomial(vec![Fraction::int(n)])).expect("a constant is always reducible")
     }
 }
 
@@ -232,11 +228,7 @@ impl core::fmt::Display for AlgebraicNumberField {
 }
 
 /// `algebraicNumberField(poly, lower, upper)`
-pub fn algebraic_number_field(
-    poly: PolyQ,
-    lower: Fraction,
-    upper: Fraction,
-) -> Result<AlgebraicNumberField> {
+pub fn algebraic_number_field(poly: PolyQ, lower: Fraction, upper: Fraction) -> Result<AlgebraicNumberField> {
     AlgebraicNumberField::new(poly, lower, upper)
 }
 
@@ -286,10 +278,7 @@ impl AlgebraicNumber {
     }
 
     /// `check_same_field`: returns the field the operation should happen in.
-    pub fn check_same_field(
-        a: &AlgebraicNumber,
-        b: &AlgebraicNumber,
-    ) -> Result<AlgebraicNumberField> {
+    pub fn check_same_field(a: &AlgebraicNumber, b: &AlgebraicNumber) -> Result<AlgebraicNumberField> {
         if a.field.equals(&b.field)? {
             return Ok(a.field.clone());
         }
@@ -316,7 +305,7 @@ impl AlgebraicNumber {
     /// detail.
     ///
     /// Refinement is shared through the field, so the work is done once per
-    /// field rather than once per call.
+    /// field instead of once per call.
     pub fn to_number(&self) -> Result<f64> {
         let k = &self.field;
         let (mut lo, mut hi) = self.interval()?;
@@ -433,7 +422,7 @@ impl Elem for AlgebraicNumber {
         AlgebraicNumber::new(k, Elem::sub(&self.poly, &b.poly)?)
     }
 
-    /// Reduction via the precomputed powers of θ (Cohen), rather than a
+    /// Reduction via the precomputed powers of θ (Cohen), instead of a
     /// polynomial division.
     ///
     /// The straightforward version multiplies the two polynomials, then folds the terms
@@ -441,8 +430,8 @@ impl Elem for AlgebraicNumber {
     /// time and folds each as it appears, which computes the same numbers in
     /// the same way without materializing the product. Folding a zero
     /// coefficient leaves the accumulator untouched down to its unreduced
-    /// numerator and denominator, so skipping those is not an approximation -
-    /// it is also what keeps the `powers` index inside the table when an
+    /// numerator and denominator, so skipping those is not an approximation,
+    /// and it is also what keeps the `powers` index inside the table when an
     /// unreduced operand pushes the product's nominal degree past it.
     fn mul(&self, b: &AlgebraicNumber) -> Result<AlgebraicNumber> {
         let k = AlgebraicNumber::check_same_field(self, b)?;
@@ -607,10 +596,7 @@ pub fn extend(
         let qq_x_y: Polynomials<PolyQ, QQx> = Polynomials::new(qq_x());
         let a_bivar = poly2(a.coeffs.iter().map(|c| vec![c.clone()]).collect());
         let b_bivar: Poly3 = b.map(qq_x_y, |c| Ok(poly2(vec![vec![c.clone()]])))?;
-        let beta = poly2(vec![
-            vec![Fraction::int(0), Fraction::int(1)],
-            vec![Fraction::int(-k)],
-        ]); // z - kx
+        let beta = poly2(vec![vec![Fraction::int(0), Fraction::int(1)], vec![Fraction::int(-k)]]); // z - kx
         let cand = resultant(&a_bivar, &b_bivar.eval(&beta)?)?; // Res_x(A(x), B(z-kx))
                                                                 // A squarefree C_mult means the conjugates of kα+β are distinct, so
                                                                 // kα+β is a primitive element of ℚ(α,β).
@@ -625,16 +611,15 @@ pub fn extend(
     let c_factors = factor(&c_mult)?;
     let mut c: Option<PolyQ> = None;
     let kf = Fraction::int(k);
-    let interval =
-        |q_a: &AlgebraicNumberField, q_b: &AlgebraicNumberField| -> Result<(Fraction, Fraction)> {
-            let (al, au) = q_a.bounds();
-            let (bl, bu) = q_b.bounds();
-            let mut lower = Elem::mul(&al, &kf)?;
-            lower.iadd_r(&bl, true);
-            let mut upper = Elem::mul(&au, &kf)?;
-            upper.iadd_r(&bu, true);
-            Ok((lower, upper))
-        };
+    let interval = |q_a: &AlgebraicNumberField, q_b: &AlgebraicNumberField| -> Result<(Fraction, Fraction)> {
+        let (al, au) = q_a.bounds();
+        let (bl, bu) = q_b.bounds();
+        let mut lower = Elem::mul(&al, &kf)?;
+        lower.iadd_r(&bl, true);
+        let mut upper = Elem::mul(&au, &kf)?;
+        upper.iadd_r(&bu, true);
+        Ok((lower, upper))
+    };
     let (mut lower, mut upper) = interval(q_alpha, q_beta)?;
     loop {
         let mut total = 0;
@@ -654,8 +639,7 @@ pub fn extend(
         lower = iv.0;
         upper = iv.1;
     }
-    let c =
-        c.ok_or_else(|| Error::Other("Could not construct C (this shouldn't happen)".into()))?;
+    let c = c.ok_or_else(|| Error::Other("Could not construct C (this shouldn't happen)".into()))?;
 
     let q_gamma = AlgebraicNumberField::new(c.clone(), lower, upper)?;
 
@@ -668,10 +652,7 @@ pub fn extend(
         q_alpha,
         b,
         &c,
-        vec![
-            vec![Fraction::int(0), Fraction::int(k)],
-            vec![Fraction::int(1)],
-        ],
+        vec![vec![Fraction::int(0), Fraction::int(k)], vec![Fraction::int(1)]],
     )?;
     if let Some(bv) = bv {
         field = q_alpha.clone();
@@ -682,10 +663,7 @@ pub fn extend(
             q_beta,
             a,
             &c,
-            vec![
-                vec![Fraction::int(0), Fraction::int(1)],
-                vec![Fraction::int(k)],
-            ],
+            vec![vec![Fraction::int(0), Fraction::int(1)], vec![Fraction::int(k)]],
         )?;
         if let Some(av) = av {
             field = q_beta.clone();
@@ -697,19 +675,13 @@ pub fn extend(
                 &q_gamma,
                 a,
                 b,
-                vec![
-                    vec![Fraction::int(0), Fraction::int(1)],
-                    vec![Fraction::int(-k)],
-                ],
+                vec![vec![Fraction::int(0), Fraction::int(1)], vec![Fraction::int(-k)]],
             )?;
             beta_vec = extend_helper(
                 &q_gamma,
                 b,
                 a,
-                vec![
-                    vec![Fraction::int(0), Fraction::of(1, k)],
-                    vec![Fraction::of(-1, k)],
-                ],
+                vec![vec![Fraction::int(0), Fraction::of(1, k)], vec![Fraction::of(-1, k)]],
             )?;
         }
     }
@@ -729,16 +701,14 @@ fn extend_helper(
     c: &PolyQ,
     g: Vec<Vec<Fraction>>,
 ) -> Result<Option<AlgebraicNumber>> {
-    let poly_alpha =
-        |coeffs: Vec<Vec<Fraction>>| -> Result<Polynomial<AlgebraicNumber, AlgebraicNumberField>> {
-            let mut cs = Vec::with_capacity(coeffs.len());
-            for c in coeffs {
-                cs.push(q_alpha.from_vector(c)?);
-            }
-            Ok(Polynomial::new(q_alpha.clone(), cs))
-        };
-    let q_alpha_x: Polynomials<AlgebraicNumber, AlgebraicNumberField> =
-        Polynomials::new(q_alpha.clone());
+    let poly_alpha = |coeffs: Vec<Vec<Fraction>>| -> Result<Polynomial<AlgebraicNumber, AlgebraicNumberField>> {
+        let mut cs = Vec::with_capacity(coeffs.len());
+        for c in coeffs {
+            cs.push(q_alpha.from_vector(c)?);
+        }
+        Ok(Polynomial::new(q_alpha.clone(), cs))
+    };
+    let q_alpha_x: Polynomials<AlgebraicNumber, AlgebraicNumberField> = Polynomials::new(q_alpha.clone());
     let b_alpha = poly_alpha(b.coeffs.iter().map(|c| vec![c.clone()]).collect())?;
     let c_alpha_x = c.map(q_alpha_x, |cc| poly_alpha(vec![vec![cc.clone()]]))?;
     let gamma = poly_alpha(g)?;
@@ -756,16 +726,12 @@ pub fn promote(xs: &mut [AlgebraicNumber]) -> Result<()> {
         let (field, alpha, beta) = extend(&xs[i - 1].field, &xs[i].field)?;
         if !field.is(&xs[i - 1].field) {
             for x in &mut xs[..i] {
-                let mapped = x
-                    .poly
-                    .map(field.clone(), |c| field.from_vector(vec![c.clone()]))?;
+                let mapped = x.poly.map(field.clone(), |c| field.from_vector(vec![c.clone()]))?;
                 *x = mapped.eval(&alpha)?;
             }
         }
         if !field.is(&xs[i].field) {
-            let mapped = xs[i]
-                .poly
-                .map(field.clone(), |c| field.from_vector(vec![c.clone()]))?;
+            let mapped = xs[i].poly.map(field.clone(), |c| field.from_vector(vec![c.clone()]))?;
             xs[i] = mapped.eval(&beta)?;
         }
     }

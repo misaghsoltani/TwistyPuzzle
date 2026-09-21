@@ -1,16 +1,18 @@
 """Structural types for the values the native module accepts and returns.
 
 Most of these are ``TypedDict`` declarations and type aliases, not classes: the
-native module hands back plain dicts and takes ordinary strings, and these
-describe their shape for type checkers and readers. They live here rather than
-in the extension because a compiled module cannot carry typing constructs.
+native module returns standard dictionaries and accepts strings, and these type
+definitions formalize their schemas for static type checkers and documentation.
+They live here instead of in the extension because a compiled module cannot carry
+typing constructs.
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, TypedDict
+from typing import TYPE_CHECKING, Literal, Protocol, TypedDict, runtime_checkable
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from typing import TypeAlias
 
     from ._native import Fraction, Recipe, Shape
@@ -18,6 +20,7 @@ if TYPE_CHECKING:
 
 __all__: list[str] = [
     "ArrayInterface",
+    "ArrayLike",
     "Atom",
     "BlendMode",
     "ExprLike",
@@ -28,6 +31,10 @@ __all__: list[str] = [
     "Rgba",
     "ShapeLike",
 ]
+
+_ArrayInterfaceValue: TypeAlias = (
+    "tuple[int, ...] | str | int | tuple[int, int | bool] | bool | list[tuple[str, str]] | None"
+)
 
 #: How :meth:`Image.blit` and :meth:`Image.fill_rect` combine source with
 #: destination: replace, alpha-composite, or add.
@@ -70,11 +77,30 @@ class ArrayInterface(TypedDict):
     data: tuple[int, int]
 
 
+@runtime_checkable
+class ArrayLike(Protocol):
+    """Anything that describes its own block of memory the way NumPy does.
+
+    A NumPy array, this package's own :class:`~twistypuzzle.Array`, and
+    anything else carrying ``__array_interface__``. Input arrays are read as
+    contiguous memory buffers instead of per-element iterations, processing
+    state arrays across large batches in a single linear memory pass without
+    per-element Python interpreter transitions.
+
+    Declared structurally because the package depends on nothing: NumPy is an
+    optional extra, and its arrays satisfy this without either side importing
+    the other.
+    """
+
+    @property
+    def __array_interface__(self) -> Mapping[str, _ArrayInterfaceValue]: ...  # ruff: ignore[bad-dunder-method-name]
+
+
 class PieceFace(TypedDict):
     """One face of a piece: indices into the piece's vertices, plus appearance.
 
     ``color`` is packed 0xRRGGBB in sRGB, the usual web encoding.
-    ``interior`` marks a face produced by a cut rather than by the puzzle's
+    ``interior`` marks a face produced by a cut instead of the puzzle's
     outer shell, so it is hidden unless the puzzle
     is turned.
     """

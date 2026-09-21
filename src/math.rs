@@ -169,12 +169,7 @@ impl Quat {
         let sqr_sin_half_theta = 1.0 - cos_half_theta * cos_half_theta;
         if sqr_sin_half_theta <= f64::EPSILON {
             let s = 1.0 - t;
-            let q = Quat::new(
-                s * x + t * bx,
-                s * y + t * by,
-                s * z + t * bz,
-                s * w + t * bw,
-            );
+            let q = Quat::new(s * x + t * bx, s * y + t * by, s * z + t * bz, s * w + t * bw);
             return q.normalize();
         }
         let sin_half_theta = sqr_sin_half_theta.sqrt();
@@ -220,11 +215,7 @@ impl ExactVector3 {
     }
 
     pub fn to_f64(&self) -> Result<Vec3> {
-        Ok(Vec3::new(
-            self.x.to_number()?,
-            self.y.to_number()?,
-            self.z.to_number()?,
-        ))
+        Ok(Vec3::new(self.x.to_number()?, self.y.to_number()?, self.z.to_number()?))
     }
 
     /// Sign of the first non-zero component, used to canonicalize planes.
@@ -239,9 +230,7 @@ impl ExactVector3 {
     }
 
     pub fn equals(&self, other: &ExactVector3) -> bool {
-        Elem::equals(&self.x, &other.x)
-            && Elem::equals(&self.y, &other.y)
-            && Elem::equals(&self.z, &other.z)
+        Elem::equals(&self.x, &other.x) && Elem::equals(&self.y, &other.y) && Elem::equals(&self.z, &other.z)
     }
 
     pub fn add(&self, o: &ExactVector3) -> Result<ExactVector3> {
@@ -388,12 +377,7 @@ pub struct ExactQuaternion {
 }
 
 impl ExactQuaternion {
-    pub fn new(
-        x: AlgebraicNumber,
-        y: AlgebraicNumber,
-        z: AlgebraicNumber,
-        w: AlgebraicNumber,
-    ) -> ExactQuaternion {
+    pub fn new(x: AlgebraicNumber, y: AlgebraicNumber, z: AlgebraicNumber, w: AlgebraicNumber) -> ExactQuaternion {
         ExactQuaternion { x, y, z, w }
     }
 
@@ -405,11 +389,7 @@ impl ExactQuaternion {
 
     /// Given an axis `k` (not necessarily normalized) and `x`, `y` with
     /// `‖x‖ = ‖y‖` and `k-x = k-y`, the rotation about `k` taking `x` to `y`.
-    pub fn from_axis_points(
-        k: &ExactVector3,
-        x: &ExactVector3,
-        y: &ExactVector3,
-    ) -> Result<ExactQuaternion> {
+    pub fn from_axis_points(k: &ExactVector3, x: &ExactVector3, y: &ExactVector3) -> Result<ExactQuaternion> {
         let kxy = k.dot(&x.cross(y)?)?;
         let _kx = k.dot(x)?; // = k-y
         let xy = x.dot(y)?;
@@ -427,12 +407,7 @@ impl ExactQuaternion {
             }
         } else {
             let w = Elem::div(&kxy, &Elem::sub(&x.dot(x)?, &xy)?)?;
-            Ok(ExactQuaternion::new(
-                k.x.clone(),
-                k.y.clone(),
-                k.z.clone(),
-                w,
-            ))
+            Ok(ExactQuaternion::new(k.x.clone(), k.y.clone(), k.z.clone(), w))
         }
     }
 
@@ -484,31 +459,19 @@ impl ExactQuaternion {
         let t = |p: &AlgebraicNumber, q: &AlgebraicNumber| Elem::mul(p, q);
         Ok(ExactQuaternion::new(
             Elem::sub(
-                &Elem::add(
-                    &Elem::add(&t(&a.w, &b.x)?, &t(&a.x, &b.w)?)?,
-                    &t(&a.y, &b.z)?,
-                )?,
+                &Elem::add(&Elem::add(&t(&a.w, &b.x)?, &t(&a.x, &b.w)?)?, &t(&a.y, &b.z)?)?,
                 &t(&a.z, &b.y)?,
             )?,
             Elem::add(
-                &Elem::add(
-                    &Elem::sub(&t(&a.w, &b.y)?, &t(&a.x, &b.z)?)?,
-                    &t(&a.y, &b.w)?,
-                )?,
+                &Elem::add(&Elem::sub(&t(&a.w, &b.y)?, &t(&a.x, &b.z)?)?, &t(&a.y, &b.w)?)?,
                 &t(&a.z, &b.x)?,
             )?,
             Elem::add(
-                &Elem::sub(
-                    &Elem::add(&t(&a.w, &b.z)?, &t(&a.x, &b.y)?)?,
-                    &t(&a.y, &b.x)?,
-                )?,
+                &Elem::sub(&Elem::add(&t(&a.w, &b.z)?, &t(&a.x, &b.y)?)?, &t(&a.y, &b.x)?)?,
                 &t(&a.z, &b.w)?,
             )?,
             Elem::sub(
-                &Elem::sub(
-                    &Elem::sub(&t(&a.w, &b.w)?, &t(&a.x, &b.x)?)?,
-                    &t(&a.y, &b.y)?,
-                )?,
+                &Elem::sub(&Elem::sub(&t(&a.w, &b.w)?, &t(&a.x, &b.x)?)?, &t(&a.y, &b.y)?)?,
                 &t(&a.z, &b.z)?,
             )?,
         ))
@@ -551,10 +514,7 @@ impl ExactQuaternion {
     /// without needing a square root.
     pub fn pseudo_normalize(&self) -> Result<ExactQuaternion> {
         let (x, y, z, w) = (&self.x, &self.y, &self.z, &self.w);
-        let mut n = Elem::add(
-            &Elem::add(&Elem::add(&w.abs()?, &x.abs()?)?, &y.abs()?)?,
-            &z.abs()?,
-        )?;
+        let mut n = Elem::add(&Elem::add(&Elem::add(&w.abs()?, &x.abs()?)?, &y.abs()?)?, &z.abs()?)?;
         if w.sign()? < 0 {
             n = Elem::neg(&n);
         }

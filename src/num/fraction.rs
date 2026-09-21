@@ -35,8 +35,7 @@ impl Fraction {
 
     /// `fraction(n, d)`: the reducing convenience constructor.
     pub fn of(n: i64, d: i64) -> Fraction {
-        Fraction::new(Int::from_i64(n), Int::from_i64(d), true)
-            .expect("fraction(): zero denominator")
+        Fraction::new(Int::from_i64(n), Int::from_i64(d), true).expect("fraction(): zero denominator")
     }
 
     /// `fraction(n)`
@@ -193,8 +192,7 @@ impl Fraction {
         let two = Int::from_i64(2);
         let mut d = Int::from_i64(1);
         loop {
-            let bound = Fraction::new(Int::from_i64(1), d.clone(), true)
-                .expect("power of two is never zero");
+            let bound = Fraction::new(Int::from_i64(1), d.clone(), true).expect("power of two is never zero");
             let mut diff = y.clone();
             let _ = Elem::isub(&mut diff, x);
             if diff.abs().compare(&bound) <= 0 {
@@ -207,8 +205,7 @@ impl Fraction {
         m.iadd_r(y, true);
         let half_d = Fraction::new(d.clone(), two.clone(), true).expect("2 != 0");
         m.imul_r(&half_d, true);
-        let half_sign =
-            Fraction::new(Int::from_i64(i64::from(m.sign())), two.clone(), true).expect("2 != 0");
+        let half_sign = Fraction::new(Int::from_i64(i64::from(m.sign())), two.clone(), true).expect("2 != 0");
         m.iadd_r(&half_sign, true);
         let n = m.n.div(&m.d);
         Fraction::new(n, d, true).expect("power of two is never zero")

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Draw every cataloged puzzle onto one labeled contact sheet.
 
-Builds all eighty-five puzzles across every core, renders them from Python
-threads (each render hands the interpreter back, so the threads really do run
-at once), groups them by shell family and lays them out in a captioned grid.
+Constructs all eighty-five cataloged puzzles across Rayon worker threads,
+renders them concurrently from Python threads with GIL release, groups
+them by shell family, and composites them into a captioned grid.
 
 Nothing outside the standard library is needed: the thumbnails, the
 compositing and the text all come from ``twistypuzzle`` itself.
@@ -103,11 +103,11 @@ def build_sheet(args: argparse.Namespace) -> tuple[tp.Image, float, float]:
 
     # --- build and photograph, a chunk at a time --------------------------
     #
-    # A chunk rather than the whole catalog at once, because a built puzzle
-    # is much larger than a picture of it: holding all eighty-five costs about
-    # 190 MB, while the thumbnails together are under twenty. Each chunk is
-    # several times the thread count, so the cores stay busy while only a
-    # handful of puzzles are ever alive.
+    # Processes in chunks instead of instantiating the entire catalog
+    # simultaneously to bound memory consumption: retaining all eighty-five
+    # geometric representations requires approximately 190 MB, whereas thumbnail
+    # images require under 20 MB. Chunks sized to available thread counts keep
+    # cores utilized while limiting resident set size.
     chunk_size = max(4, tp.thread_count())
     build_s = render_s = 0.0
     counts: dict[str, int] = {}

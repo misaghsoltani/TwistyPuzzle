@@ -26,9 +26,7 @@ fn main() {
                 .status();
             if let Ok(s) = status {
                 if s.success() {
-                    let _ = std::process::Command::new("ar")
-                        .args(["rcs", &lib, &obj])
-                        .status();
+                    let _ = std::process::Command::new("ar").args(["rcs", &lib, &obj]).status();
                     println!("cargo:rustc-link-search=native={out_dir}");
                     println!("cargo:rustc-link-lib=static=dock_macos");
                     println!("cargo:rustc-link-lib=framework=AppKit");
